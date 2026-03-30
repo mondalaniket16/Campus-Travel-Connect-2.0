@@ -1,12 +1,54 @@
 const express = require('express');
 const { body, param, query } = require('express-validator');
 const Group = require('../models/Group');
+const Listing = require('../models/Listing');
 const JoinRequest = require('../models/JoinRequest');
 const Notification = require('../models/Notification');
 const { auth } = require('../middleware/auth');
 const validate = require('../middleware/validate');
 
 const router = express.Router();
+
+// @route   GET /api/groups/search
+// @desc    Search groups with filters
+router.get('/search', async (req, res) => {
+  try {
+    const { destination, date, from, mode, gender } = req.query;
+    const filter = { type: 'group', isActive: true };
+
+    if (destination) filter.to = new RegExp(destination, 'i');
+    if (date) filter.date = date;
+    if (from) filter.from = new RegExp(from, 'i');
+    if (mode) filter.vehicle = mode;
+    if (gender && gender !== 'No Preference') filter.gender = gender;
+
+    // Search in both Group and Listing models for comprehensive results
+    const [groups, listings] = await Promise.all([
+      Group.find(filter)
+        .populate('creator', 'name photoURL')
+        .populate('members', 'name photoURL')
+        .sort({ createdAt: -1 })
+        .limit(50),
+      Listing.find(filter)
+        .populate('creator', 'name photoURL email phone')
+        .sort({ createdAt: -1 })
+        .limit(50)
+    ]);
+
+    // Combine results, removing duplicates based on _id
+    const seen = new Set();
+    const combined = [...groups, ...listings].filter(item => {
+      if (seen.has(item._id.toString())) return false;
+      seen.add(item._id.toString());
+      return true;
+    });
+
+    res.json({ groups: combined, listings: combined });
+  } catch (error) {
+    console.error('Group search error:', error);
+    res.status(500).json({ error: 'Failed to search groups' });
+  }
+});
 
 // @route   GET /api/groups
 // @desc    Get all groups with filters

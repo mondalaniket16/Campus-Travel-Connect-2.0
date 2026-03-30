@@ -55,6 +55,15 @@ router.post('/', auth, [
 
     await joinRequest.save();
 
+    // Create notification for group leader
+    await Notification.create({
+      user: listing.uid,
+      type: 'join_request',
+      title: 'New Join Request',
+      message: `${req.user.name} wants to join your trip to ${listing.to}`,
+      data: { requestId: joinRequest._id, groupId, senderId: req.userId }
+    });
+
     res.status(201).json({ request: joinRequest, message: 'Request sent successfully' });
   } catch (error) {
     if (error.code === 11000) {
@@ -135,8 +144,17 @@ router.put('/:id/accept', auth, [
     await request.save();
 
     // Add to group members
-    await Listing.findByIdAndUpdate(request.groupId, {
+    const listing = await Listing.findByIdAndUpdate(request.groupId, {
       $addToSet: { members: request.senderId }
+    }, { new: true });
+
+    // Notify the requester
+    await Notification.create({
+      user: request.senderId,
+      type: 'request_accepted',
+      title: 'Request Accepted! 🎉',
+      message: `Your request to join the trip to ${request.destination || 'the group'} has been accepted!`,
+      data: { requestId: request._id, groupId: request.groupId }
     });
 
     res.json({ message: 'Request accepted', request });
@@ -169,6 +187,15 @@ router.put('/:id/reject', auth, [
     request.status = 'rejected';
     request.respondedAt = new Date();
     await request.save();
+
+    // Notify the requester
+    await Notification.create({
+      user: request.senderId,
+      type: 'request_rejected',
+      title: 'Request Declined',
+      message: `Your request to join the trip to ${request.destination || 'the group'} was not accepted.`,
+      data: { requestId: request._id, groupId: request.groupId }
+    });
 
     res.json({ message: 'Request rejected', request });
   } catch (error) {

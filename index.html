@@ -78,14 +78,31 @@
         </button>
         <button
           class="icon-btn"
-          onclick="goDashboard()"
+          id="notifBtn"
+          onclick="toggleNotificationPanel(event)"
           title="Notifications"
           style="position: relative"
         >
           🔔
           <span id="notifBadge" class="notification-badge hidden">0</span>
         </button>
+        <div id="headerAvatar" class="header-avatar" onclick="goMyProfile()" title="My Profile"></div>
         <button class="logout-btn" onclick="logout()">Logout</button>
+      </div>
+    </div>
+
+    <!-- ── NOTIFICATION PANEL ───────────────────────────────────────────────── -->
+    <div id="notificationBackdrop" class="notification-backdrop hidden" onclick="closeNotificationPanel()"></div>
+    <div id="notificationPanel" class="notification-panel hidden">
+      <div class="notification-panel-header">
+        <h3>🔔 Notifications</h3>
+        <button onclick="markAllNotificationsRead()">Mark all read</button>
+      </div>
+      <div id="notificationPanelBody" class="notification-panel-body">
+        <div class="notification-empty">
+          <span>🔔</span>
+          <p>No notifications yet</p>
+        </div>
       </div>
     </div>
 

@@ -7,6 +7,42 @@ const validate = require('../middleware/validate');
 
 const router = express.Router();
 
+// @route   GET /api/listings/search
+// @desc    Search listings with more flexible filtering
+router.get('/search', optionalAuth, async (req, res) => {
+  try {
+    const { type, destination, from, transport, date, gender, q } = req.query;
+    const filter = { isActive: true };
+
+    if (type) filter.type = type;
+    if (destination) filter.to = new RegExp(destination, 'i');
+    if (from) filter.from = new RegExp(from, 'i');
+    if (transport && transport !== 'Anything') filter.vehicle = new RegExp(transport, 'i');
+    if (date) filter.date = date;
+    if (gender && gender !== 'No Preference' && !/select/i.test(gender)) filter.gender = gender;
+    
+    // General search query
+    if (q) {
+      filter.$or = [
+        { to: new RegExp(q, 'i') },
+        { from: new RegExp(q, 'i') },
+        { notes: new RegExp(q, 'i') },
+        { name: new RegExp(q, 'i') }
+      ];
+    }
+
+    const listings = await Listing.find(filter)
+      .populate('creator', 'name photoURL email phone')
+      .sort({ createdAt: -1 })
+      .limit(100);
+
+    res.json({ listings, count: listings.length });
+  } catch (error) {
+    console.error('Listing search error:', error);
+    res.status(500).json({ error: 'Failed to search listings' });
+  }
+});
+
 // @route   GET /api/listings
 // @desc    Get all listings with filters
 router.get('/', optionalAuth, async (req, res) => {

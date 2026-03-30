@@ -13,6 +13,7 @@ let viewingUserData = null;
 let activeConversationId = null;
 let activeConversationUser = null;
 let issueScreenshotFile = null;
+let notificationPanelOpen = false;
 
 const state = {
   currentPage: "authPage",
@@ -68,13 +69,10 @@ const API = {
 
       return data;
     } catch (error) {
-      if (
-        error instanceof TypeError ||
-        /failed to fetch/i.test(error.message) ||
-        /network/i.test(error.message)
-      ) {
+      // Only show network errors for actual connection failures
+      if (error.name === "TypeError" && error.message === "Failed to fetch") {
         throw new Error(
-          "Unable to connect to the server. Please try again in a moment.",
+          "Unable to connect to the server. Please check your connection.",
         );
       }
       throw error;
@@ -271,6 +269,7 @@ function setHeader() {
   $("sidebarUserName").textContent = currentUserData.name || "User";
   $("sidebarUserEmail").textContent = currentUser.email || "";
   setAvatar($("sidebarUserAvatar"), currentUserData.name, currentUserData.photoURL);
+  setAvatar($("headerAvatar"), currentUserData.name, currentUserData.photoURL);
 }
 
 async function initAuth() {
@@ -538,7 +537,7 @@ async function searchMatches() {
     const listings = (data.listings || []).map(normalizeListing);
 
     if (!listings.length) {
-      renderEmptyState(results, "No matches found for the selected trip.", "🚕");
+      renderEmptyState(results, "No matches found. Try adjusting your filters or post your own trip!", "🚕");
       return;
     }
 
@@ -567,7 +566,7 @@ async function searchMatches() {
       )
       .join("");
   } catch (error) {
-    renderEmptyState(results, error.message, "⚠️");
+    renderEmptyState(results, error.message || "Failed to search. Please try again.", "⚠️");
   } finally {
     setButtonLoading(button, false, "Searching...", "🔍 Search");
   }
@@ -595,7 +594,7 @@ async function postMyTrip() {
   setButtonLoading(button, true, "Posting...", "📮 Post My Trip");
 
   try {
-    await API.post("/listings", {
+    const result = await API.post("/listings", {
       type: "match",
       from: "VIT Chennai",
       to,
@@ -606,7 +605,8 @@ async function postMyTrip() {
       notes,
     });
 
-    toast("Trip posted successfully.", "success");
+    // Success - reset form and show results
+    toast("Trip posted successfully!", "success");
     $("postExtraInfo").value = "";
     $("postDate").value = "";
     $("postTime").value = "";
@@ -616,9 +616,9 @@ async function postMyTrip() {
     $("postDestOther").value = "";
     $("postDestOther").classList.add("hidden");
     showFindForm();
-    await searchMatches();
+    searchMatches();
   } catch (error) {
-    toast(error.message, "error");
+    toast(error.message || "Failed to post trip", "error");
   } finally {
     setButtonLoading(button, false, "Posting...", "📮 Post My Trip");
   }
@@ -639,16 +639,20 @@ async function searchGroups() {
 
   try {
     const query = new URLSearchParams({ type: "group" });
-    if (destination) query.append("destination", destination);
+    if (destination && !/select/i.test(destination) && destination !== "") {
+      query.append("destination", destination);
+    }
     if (date) query.append("date", date);
-    if (mode) query.append("transport", mode);
+    if (mode && mode !== "" && !/select/i.test(mode)) {
+      query.append("transport", mode);
+    }
     if (gender && !/select/i.test(gender)) query.append("gender", gender);
 
     const data = await API.get(`/listings?${query.toString()}`);
     const listings = (data.listings || []).map(normalizeListing);
 
     if (!listings.length) {
-      renderEmptyState(results, "No groups found yet.", "🧳");
+      renderEmptyState(results, "No groups found. Try different filters or create your own group!", "🧳");
       return;
     }
 
@@ -692,7 +696,7 @@ async function searchGroups() {
       })
       .join("");
   } catch (error) {
-    renderEmptyState(results, error.message, "⚠️");
+    renderEmptyState(results, error.message || "Failed to search groups", "⚠️");
   } finally {
     setButtonLoading(button, false, "Searching...", "🔍 Search Groups");
   }
@@ -720,7 +724,7 @@ async function submitCreateGroup() {
   setButtonLoading(button, true, "Creating...", "Create Group 🎒");
 
   try {
-    await API.post("/listings", {
+    const result = await API.post("/listings", {
       type: "group",
       from: "VIT Chennai",
       to,
@@ -731,7 +735,10 @@ async function submitCreateGroup() {
       notes,
     });
 
-    toast("Group created successfully.", "success");
+    // Success - clear form and navigate
+    toast("Group created successfully!", "success");
+    
+    // Reset form fields
     $("cgDate").value = "";
     $("cgMode").selectedIndex = 0;
     $("cgGender").selectedIndex = 0;
@@ -740,10 +747,12 @@ async function submitCreateGroup() {
     $("cgToSelect").selectedIndex = 0;
     $("cgToOther").value = "";
     $("cgToOther").classList.add("hidden");
+    
+    // Navigate and refresh
     switchPage("routePage");
-    await searchGroups();
+    searchGroups();
   } catch (error) {
-    toast(error.message, "error");
+    toast(error.message || "Failed to create group", "error");
   } finally {
     setButtonLoading(button, false, "Creating...", "Create Group 🎒");
   }
@@ -1272,14 +1281,175 @@ async function viewGroupMembers(groupId) {
 async function updateNotificationBadges() {
   if (!currentUser) return;
   try {
-    const requests = await API.get("/join-requests/received");
-    const pending = (requests.requests || []).filter(
+    const [requestsData, notifData] = await Promise.all([
+      API.get("/join-requests/received"),
+      API.get("/notifications").catch(() => ({ unreadCount: 0 }))
+    ]);
+    
+    const pendingRequests = (requestsData.requests || []).filter(
       (request) => request.status === "pending",
     ).length;
-    $("notifBadge").textContent = pending;
-    $("notifBadge").classList.toggle("hidden", pending === 0);
+    
+    const totalUnread = pendingRequests + (notifData.unreadCount || 0);
+    
+    $("notifBadge").textContent = totalUnread;
+    $("notifBadge").classList.toggle("hidden", totalUnread === 0);
   } catch {
     $("notifBadge")?.classList.add("hidden");
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// NOTIFICATION PANEL FUNCTIONS
+// ═══════════════════════════════════════════════════════════════════════════
+
+function toggleNotificationPanel(event) {
+  event?.stopPropagation();
+  if (notificationPanelOpen) {
+    closeNotificationPanel();
+  } else {
+    openNotificationPanel();
+  }
+}
+
+async function openNotificationPanel() {
+  notificationPanelOpen = true;
+  $("notificationPanel")?.classList.remove("hidden");
+  $("notificationBackdrop")?.classList.remove("hidden");
+  await loadNotifications();
+}
+
+function closeNotificationPanel() {
+  notificationPanelOpen = false;
+  $("notificationPanel")?.classList.add("hidden");
+  $("notificationBackdrop")?.classList.add("hidden");
+}
+
+async function loadNotifications() {
+  const container = $("notificationPanelBody");
+  if (!container) return;
+  
+  showInlineLoading(container, "Loading notifications...");
+  
+  try {
+    const [notifData, requestsData] = await Promise.all([
+      API.get("/notifications").catch(() => ({ notifications: [] })),
+      API.get("/join-requests/received")
+    ]);
+    
+    const notifications = notifData.notifications || [];
+    const pendingRequests = (requestsData.requests || []).filter(r => r.status === "pending");
+    
+    // Convert pending requests to notification format
+    const requestNotifs = pendingRequests.map(req => ({
+      _id: req._id,
+      type: "join_request",
+      title: "New Join Request",
+      message: `${req.senderName || "Someone"} wants to join your trip to ${req.destination || "your group"}`,
+      read: false,
+      createdAt: req.createdAt,
+      data: { requestId: req._id }
+    }));
+    
+    const allNotifs = [...requestNotifs, ...notifications].sort(
+      (a, b) => new Date(b.createdAt) - new Date(a.createdAt)
+    ).slice(0, 30);
+    
+    if (!allNotifs.length) {
+      container.innerHTML = `
+        <div class="notification-empty">
+          <span>🔔</span>
+          <p>No notifications yet</p>
+        </div>
+      `;
+      return;
+    }
+    
+    container.innerHTML = allNotifs.map(notif => {
+      const icon = getNotificationIcon(notif.type);
+      const timeAgo = getTimeAgo(notif.createdAt);
+      const unreadClass = notif.read ? "" : "unread";
+      
+      return `
+        <div class="notification-item ${unreadClass}" onclick="handleNotificationClick('${notif._id}', '${notif.type}')">
+          <div class="notification-icon">${icon}</div>
+          <div class="notification-content">
+            <h4>${notif.title}</h4>
+            <p>${notif.message}</p>
+          </div>
+          <span class="notification-time">${timeAgo}</span>
+        </div>
+      `;
+    }).join("");
+    
+  } catch (error) {
+    container.innerHTML = `
+      <div class="notification-empty">
+        <span>⚠️</span>
+        <p>${error.message || "Failed to load notifications"}</p>
+      </div>
+    `;
+  }
+}
+
+function getNotificationIcon(type) {
+  const icons = {
+    join_request: "📩",
+    request_accepted: "✅",
+    request_rejected: "❌",
+    new_message: "💬",
+    group_update: "🎒"
+  };
+  return icons[type] || "🔔";
+}
+
+function getTimeAgo(dateStr) {
+  const date = new Date(dateStr);
+  const now = new Date();
+  const diffMs = now - date;
+  const diffMins = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMs / 3600000);
+  const diffDays = Math.floor(diffMs / 86400000);
+  
+  if (diffMins < 1) return "Just now";
+  if (diffMins < 60) return `${diffMins}m ago`;
+  if (diffHours < 24) return `${diffHours}h ago`;
+  if (diffDays < 7) return `${diffDays}d ago`;
+  return date.toLocaleDateString();
+}
+
+async function handleNotificationClick(id, type) {
+  closeNotificationPanel();
+  
+  if (type === "join_request") {
+    await goDashboard();
+    showDashTab("requests");
+  } else if (type === "new_message") {
+    await goMessages();
+  } else if (type === "request_accepted" || type === "request_rejected") {
+    await goDashboard();
+    showDashTab("sent");
+  } else {
+    await goDashboard();
+  }
+  
+  // Mark as read
+  try {
+    await API.put(`/notifications/${id}/read`, {});
+    updateNotificationBadges();
+  } catch {
+    // Ignore errors for marking as read
+  }
+}
+
+async function markAllNotificationsRead() {
+  try {
+    await API.put("/notifications/read-all", {});
+    toast("All notifications marked as read", "success");
+    await loadNotifications();
+    await updateNotificationBadges();
+  } catch (error) {
+    toast(error.message, "error");
   }
 }
 
@@ -1504,7 +1674,10 @@ async function submitIssueReport() {
 }
 
 document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape") closeSidebar();
+  if (event.key === "Escape") {
+    closeSidebar();
+    closeNotificationPanel();
+  }
   if (
     event.key === "Enter" &&
     state.currentPage === "chatConvPage" &&
