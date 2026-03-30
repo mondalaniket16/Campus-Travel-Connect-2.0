@@ -144,12 +144,6 @@ router.get('/:id/members', auth, [
   }
 });
 
-    res.json({ members });
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to fetch members' });
-  }
-});
-
 // @route   POST /api/listings
 // @desc    Create listing (match or group)
 router.post('/', auth, async (req, res) => {
