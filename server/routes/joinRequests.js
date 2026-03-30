@@ -78,7 +78,10 @@ router.post('/', auth, [
     }
 
     // Check if already a member
-    if (listing.members?.includes(req.userId)) {
+    const isAlreadyMember = (listing.members || []).some(
+      (memberId) => String(memberId) === String(req.userId)
+    );
+    if (isAlreadyMember) {
       console.log('[POST /join-requests] User already a member');
       return res.status(400).json({ error: 'You are already a member of this group' });
     }

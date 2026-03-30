@@ -929,17 +929,15 @@ async function submitCreateGroup() {
 
 async function requestJoinGroup(groupId) {
   try {
-    const existing = await API.get(`/join-requests/check/${groupId}`);
-    if (existing.exists) {
-      toast("Request already sent.", "info");
-      return;
-    }
-
     await API.post("/join-requests", { groupId });
     toast("Join request sent.", "success");
     updateNotificationBadges();
     await searchGroups();
   } catch (error) {
+    if ((error.message || "").toLowerCase().includes("already sent")) {
+      toast("Request already sent for this group.", "info");
+      return;
+    }
     toast(error.message, "error");
   }
 }
