@@ -1,0 +1,951 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Campus Travel Connect</title>
+    <meta
+      name="description"
+      content="Connect with fellow VIT students for shared travel — short trips and long-distance journeys made easy."
+    />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;700&family=Playfair+Display:wght@500&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="style.css" />
+
+    <!-- Google Sign-In SDK -->
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+  </head>
+
+  <body>
+    <!-- ── LOADING SCREEN ──────────────────────────────────────────────────── -->
+    <div id="loadingScreen" class="loading-screen">
+      <div class="spinner"></div>
+      <p>Campus Travel Connect</p>
+    </div>
+
+    <!-- ── TOAST ──────────────────────────────────────────────────────────── -->
+    <div id="toast" class="toast"></div>
+
+    <!-- ── SIDEBAR BACKDROP ────────────────────────────────────────────────── -->
+    <div
+      id="sidebarBackdrop"
+      class="sidebar-backdrop hidden"
+      onclick="closeSidebar()"
+    ></div>
+
+    <!-- ── SIDEBAR ─────────────────────────────────────────────────────────── -->
+    <nav id="sidebar" class="sidebar">
+      <div class="sidebar-profile">
+        <div id="sidebarUserAvatar" class="sidebar-avatar"></div>
+        <div>
+          <div id="sidebarUserName" class="sidebar-name">—</div>
+          <div id="sidebarUserEmail" class="sidebar-email">—</div>
+        </div>
+      </div>
+      <ul class="sidebar-nav">
+        <li onclick="goHome()">🏠 &nbsp; Home</li>
+        <li onclick="goDashboard()">📊 &nbsp; Dashboard</li>
+        <li onclick="goMyProfile()">👤 &nbsp; My Profile</li>
+        <li onclick="goMessages()">💬 &nbsp; Messages</li>
+        <li onclick="goFindMatch()">🔍 &nbsp; Find Partners</li>
+        <li onclick="goGroupFinder()">🚆 &nbsp; Group Finder</li>
+        <li class="sidebar-divider"></li>
+        <li onclick="goExperience()">⭐ &nbsp; Experience</li>
+        <li onclick="goSettings()">⚙️ &nbsp; Settings</li>
+        <li onclick="goReportIssue()">🚩 &nbsp; Report an Issue</li>
+        <li class="sidebar-divider"></li>
+        <li onclick="logout()" class="sidebar-logout">🔓 &nbsp; Logout</li>
+      </ul>
+    </nav>
+
+    <!-- ── USER BAR (post-login header) ───────────────────────────────────── -->
+    <div id="userBar" class="user-bar hidden">
+      <button class="hamburger-btn" onclick="openSidebar()" title="Menu">
+        &#9776;
+      </button>
+      <span id="userGreeting" class="user-greeting"></span>
+      <div class="userbar-right">
+        <button
+          class="icon-btn"
+          onclick="goMessages()"
+          title="Messages"
+          style="position: relative"
+        >
+          💬
+          <span id="msgBadge" class="notification-badge hidden">0</span>
+        </button>
+        <button
+          class="icon-btn"
+          onclick="goDashboard()"
+          title="Notifications"
+          style="position: relative"
+        >
+          🔔
+          <span id="notifBadge" class="notification-badge hidden">0</span>
+        </button>
+        <button class="logout-btn" onclick="logout()">Logout</button>
+      </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════════════════ AUTH PAGE ═════ -->
+    <section id="authPage" class="page active">
+      <div class="auth-box">
+        <h1
+          class="title glow-text"
+          style="white-space: nowrap; font-size: clamp(1.1rem, 4vw, 2rem)"
+        >
+          Campus Travel Connect
+        </h1>
+
+        <div class="tabs">
+          <span id="loginTab" class="active" onclick="showLogin()">Login</span>
+          <span id="signupTab" onclick="showSignup()">Sign Up</span>
+        </div>
+
+        <!-- Login Form -->
+        <div id="loginForm">
+          <input
+            id="loginEmail"
+            type="email"
+            placeholder="College Email (@vitstudent.ac.in)"
+          />
+          <input id="loginPassword" type="password" placeholder="Password" />
+          <button id="loginBtn" onclick="login()">Login</button>
+          <p class="forgot-link" onclick="showForgotPw()">Forgot password?</p>
+          <div class="divider">OR</div>
+          <button class="google-btn" onclick="googleSignIn()">
+            <img
+              src="https://developers.google.com/identity/images/g-logo.png"
+              alt="Google"
+            />
+            Sign in with Google
+          </button>
+        </div>
+
+        <!-- Sign Up Form -->
+        <div id="signupForm" class="hidden">
+          <input id="signupName" type="text" placeholder="Full Name" />
+          <input id="signupReg" type="text" placeholder="Registration Number" />
+          <input
+            id="signupPhone"
+            type="tel"
+            placeholder="Phone Number (10 digits)"
+          />
+          <input
+            id="signupEmail"
+            type="email"
+            placeholder="College Email (@vitstudent.ac.in)"
+          />
+          <input
+            id="signupPassword"
+            type="password"
+            placeholder="Create Password (min 6 chars)"
+          />
+          <input
+            id="signupConfirmPassword"
+            type="password"
+            placeholder="Confirm Password"
+          />
+          <button id="signupBtn" onclick="signup()">Create Account</button>
+          <div class="divider">OR</div>
+          <button class="google-btn" onclick="googleSignIn()">
+            <img
+              src="https://developers.google.com/identity/images/g-logo.png"
+              alt="Google"
+            />
+            Sign up with Google
+          </button>
+        </div>
+
+        <!-- Forgot Password Form -->
+        <div id="forgotPwForm" class="hidden">
+          <p class="form-label">
+            Enter your registered email and we'll send a reset link.
+          </p>
+          <input id="forgotEmail" type="email" placeholder="College Email" />
+          <button id="forgotBtn" class="primary-btn" onclick="forgotPassword()">
+            Send Reset Link
+          </button>
+          <p class="forgot-link" onclick="showLogin()">← Back to Login</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══════════════════════════════════════════════════════ CASE PAGE ═════ -->
+    <section id="casePage" class="page">
+      <h1 class="title">Choose Your Travel Type</h1>
+      <div class="case-container">
+        <div class="case-card" onclick="openMatchPage()">
+          <div class="case-icon">🚕</div>
+          <h2>Travel Match Board</h2>
+          <p>Short trips by cab, bus or auto within a few hours.</p>
+          <button>Find Travel Partners</button>
+        </div>
+        <div class="case-card" onclick="openRoutePage()">
+          <div class="case-icon">🚆</div>
+          <h2>Route Group Finder</h2>
+          <p>Plan long-distance journeys with students heading home.</p>
+          <button>Create / Join Group</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══════════════════════════════════════════════════════ MATCH PAGE ════ -->
+    <section id="matchPage" class="page">
+      <h1 class="title">Travel Match Board</h1>
+
+      <!-- Tab switcher -->
+      <div class="page-tabs">
+        <span
+          id="findTab"
+          class="active"
+          onclick="showFindForm()"
+          style="white-space: nowrap"
+          >🔍 Find Partners</span
+        >
+        <span id="postTab" onclick="showPostForm()">✏️ Post My Trip</span>
+      </div>
+
+      <!-- FIND FORM -->
+      <div id="findForm">
+        <div class="two-col-form">
+          <!-- Left Column: Trip Details -->
+          <div class="form-col">
+            <p class="col-label">📍 Trip Details</p>
+            <select
+              id="destinationSelect"
+              onchange="handleOtherInput(this, 'destinationOther')"
+            >
+              <option>Select Destination</option>
+              <option>MGR Chennai Central</option>
+              <option>Tambaram Station</option>
+              <option>MAA Airport</option>
+              <option>Kelambakkam</option>
+              <option value="other">Other</option>
+            </select>
+            <input
+              type="text"
+              id="destinationOther"
+              placeholder="Enter Destination"
+              class="hidden"
+            />
+            <input type="date" id="matchDate" />
+            <select id="genderSelect">
+              <option>Select Gender Preference</option>
+              <option>No Preference</option>
+              <option>Male</option>
+              <option>Female</option>
+            </select>
+          </div>
+          <!-- Right Column: Travel Preferences -->
+          <div class="form-col">
+            <p class="col-label">🚗 Travel Preferences</p>
+            <select
+              id="transportSelect"
+              onchange="handleOtherInput(this, 'transportOther')"
+            >
+              <option>Select Transport</option>
+              <option>Cab</option>
+              <option>Bus</option>
+              <option>Auto</option>
+              <option>Anything</option>
+              <option value="other">Other</option>
+            </select>
+            <input
+              type="text"
+              id="transportOther"
+              placeholder="Enter Transport Type"
+              class="hidden"
+            />
+            <input type="time" id="matchTime" placeholder="Preferred Time" />
+            <input
+              type="number"
+              id="matchMembers"
+              min="1"
+              max="20"
+              placeholder="Preferred No. of Members"
+            />
+          </div>
+        </div>
+        <div class="action-row">
+          <button id="searchMatchBtn" onclick="searchMatches()">
+            🔍 Search
+          </button>
+          <button class="secondary-btn" onclick="backToCases()">← Back</button>
+        </div>
+        <div id="matchResultsSection" class="results-section hidden">
+          <h2 class="results-heading">Travel Partners</h2>
+          <div id="matchResults" class="results-grid"></div>
+        </div>
+      </div>
+
+      <!-- POST FORM -->
+      <div id="postForm" class="hidden">
+        <div class="form-grid">
+          <select
+            id="postDestSelect"
+            onchange="handleOtherInput(this, 'postDestOther')"
+          >
+            <option>Select Destination</option>
+            <option>MGR Chennai Central</option>
+            <option>Tambaram Station</option>
+            <option>MAA Airport</option>
+            <option>Kelambakkam</option>
+            <option value="other">Other</option>
+          </select>
+          <input
+            type="text"
+            id="postDestOther"
+            placeholder="Enter Destination"
+            class="hidden"
+          />
+          <input type="date" id="postDate" placeholder="Travel Date" />
+          <input type="time" id="postTime" placeholder="Departure Time" />
+          <select id="postTransport">
+            <option>Select Transport</option>
+            <option>Cab</option>
+            <option>Bus</option>
+            <option>Auto</option>
+            <option>Anything</option>
+          </select>
+          <select id="postGender">
+            <option>Select Gender Preference</option>
+            <option>No Preference</option>
+            <option>Male</option>
+            <option>Female</option>
+          </select>
+        </div>
+        <textarea
+          id="postExtraInfo"
+          class="extra-textarea"
+          placeholder="Extra info (e.g. 'I leave from Gate 3, sharing cab cost')"
+        ></textarea>
+        <div class="action-row">
+          <button id="postTripBtn" onclick="postMyTrip()">
+            📮 Post My Trip
+          </button>
+          <button class="secondary-btn" onclick="backToCases()">← Back</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══════════════════════════════════════════════════════ ROUTE PAGE ════ -->
+    <section id="routePage" class="page">
+      <h1 class="title">Route Group Finder</h1>
+      <div class="form-grid">
+        <input
+          type="text"
+          id="routeFrom"
+          value="VIT Chennai"
+          readonly
+          placeholder="From"
+        />
+        <select
+          id="routeToSelect"
+          onchange="handleOtherInput(this, 'routeToOther')"
+        >
+          <option value="">To (Select Destination)</option>
+          <option>Mumbai</option>
+          <option>Delhi</option>
+          <option>Kolkata</option>
+          <option>Bangalore</option>
+          <option>Hyderabad</option>
+          <option>Ahmedabad</option>
+          <option>Pune</option>
+          <option>Jaipur</option>
+          <option>Lucknow</option>
+          <option>Bhopal</option>
+          <option>Chandigarh</option>
+          <option>Kochi</option>
+          <option>Coimbatore</option>
+          <option>Madurai</option>
+          <option>Trichy</option>
+          <option>Vijayawada</option>
+          <option>Visakhapatnam</option>
+          <option>Bhubaneswar</option>
+          <option>Patna</option>
+          <option>Guwahati</option>
+          <option>Indore</option>
+          <option>Nagpur</option>
+          <option>Surat</option>
+          <option>Agra</option>
+          <option>Varanasi</option>
+          <option>Dehradun</option>
+          <option value="other">Other</option>
+        </select>
+        <input type="date" id="routeDate" />
+        <select id="routeMode">
+          <option value="">Travel Mode</option>
+          <option>Train</option>
+          <option>Flight</option>
+          <option>Bus</option>
+          <option>Car</option>
+        </select>
+        <select id="routeGender">
+          <option>Select Gender Preference</option>
+          <option>No Preference</option>
+          <option>Male</option>
+          <option>Female</option>
+        </select>
+        <input
+          type="number"
+          id="routeMembers"
+          min="1"
+          max="20"
+          placeholder="Preferred No. of Members"
+        />
+      </div>
+      <input
+        type="text"
+        id="routeToOther"
+        placeholder="Enter destination city"
+        class="hidden"
+        style="width: min(700px, 96vw); margin-top: 0"
+      />
+      <textarea
+        id="routeDescription"
+        class="extra-textarea"
+        placeholder="Travel Description (optional) — e.g. specific train, bus number, layover flight info..."
+      ></textarea>
+      <div class="action-row">
+        <button id="searchGroupBtn" onclick="searchGroups()">
+          🔍 Search Groups
+        </button>
+        <button onclick="switchPage('createGroupPage')">＋ Create Group</button>
+        <button class="secondary-btn" onclick="backToCases()">← Back</button>
+      </div>
+      <div id="routeResultsSection" class="results-section hidden">
+        <h2 class="results-heading">Available Groups</h2>
+        <div id="routeResults" class="results-grid"></div>
+      </div>
+    </section>
+
+    <!-- ════════════════════════════════════════════ MY PROFILE PAGE ═════════ -->
+    <section id="profilePage" class="page">
+      <h1 class="title">My Profile</h1>
+      <div class="profile-card">
+        <div class="profile-avatar-wrap">
+          <div
+            id="profileAvatar"
+            class="profile-avatar"
+            onclick="triggerPhotoUpload()"
+            title="Click to change photo"
+          ></div>
+          <span class="avatar-edit-hint">📷 tap to change</span>
+          <input
+            type="file"
+            id="photoFileInput"
+            accept="image/*"
+            class="hidden"
+            onchange="handlePhotoUpload(event)"
+          />
+        </div>
+        <div class="profile-form">
+          <label>Full Name</label>
+          <input id="profileName" type="text" placeholder="Your name" />
+          <label>Registration No.</label>
+          <input
+            id="profileReg"
+            type="text"
+            placeholder="e.g. 21BCE1234"
+            readonly
+          />
+          <label>Department</label>
+          <input
+            id="profileDept"
+            type="text"
+            placeholder="e.g. CSE, ECE, MECH, MBA"
+          />
+          <label>Phone</label>
+          <input id="profilePhone" type="tel" placeholder="10-digit phone" />
+          <label>Extra Email (optional — for contact)</label>
+          <input
+            id="profileExtraEmail"
+            type="email"
+            placeholder="Personal email (optional)"
+          />
+          <label>Extra Phone (optional — WhatsApp / alternate)</label>
+          <input
+            id="profileExtraPhone"
+            type="tel"
+            placeholder="Alternate number (optional)"
+          />
+          <label>Email (VIT)</label>
+          <input id="profileEmail" type="email" placeholder="—" readonly />
+          <label>Bio</label>
+          <textarea
+            id="profileBio"
+            class="extra-textarea"
+            placeholder="Tell others a bit about yourself..."
+          ></textarea>
+          <button id="saveProfileBtn" onclick="saveProfile()">
+            Save Changes
+          </button>
+          <button class="secondary-btn" onclick="backToCases()">← Back</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════════════════ OTHER USER PROFILE PAGE ══════ -->
+    <section id="otherProfilePage" class="page">
+      <div class="other-profile-wrap">
+        <div class="other-profile-header">
+          <div
+            id="otherProfileAvatar"
+            class="profile-avatar large-avatar"
+          ></div>
+          <div>
+            <h2 id="otherProfileName">—</h2>
+            <p id="otherProfileReg" class="profile-meta">—</p>
+            <p id="otherProfilePhone" class="profile-meta">—</p>
+          </div>
+        </div>
+        <div class="other-profile-bio">
+          <label>About</label>
+          <p id="otherProfileBio">—</p>
+        </div>
+        <div
+          class="action-row"
+          style="justify-content: center; margin-top: 24px"
+        >
+          <button id="messageUserBtn" onclick="messageUser()">
+            💬 Message
+          </button>
+          <button
+            class="secondary-btn"
+            onclick="history.back ? switchPage('matchPage') : backToCases()"
+          >
+            ← Back
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ════════════════════════════════════════════ CHAT LIST PAGE ══════════ -->
+    <section id="chatListPage" class="page">
+      <h1 class="title">Messages</h1>
+      <div id="chatList" class="chat-list-container"></div>
+      <div class="action-row" style="justify-content: center; margin-top: 20px">
+        <button class="secondary-btn" onclick="backToCases()">← Back</button>
+      </div>
+    </section>
+
+    <!-- ════════════════════════════════════════ CHAT CONVERSATION PAGE ══════ -->
+    <section id="chatConvPage" class="page chat-conv-page">
+      <div class="chat-header">
+        <button
+          class="icon-btn"
+          onclick="
+            loadChatList();
+            switchPage('chatListPage');
+          "
+        >
+          ←
+        </button>
+        <div id="chatPartnerAvatar" class="chat-partner-avatar"></div>
+        <span id="chatPartnerName" class="chat-partner-name">—</span>
+      </div>
+      <div id="chatMessages" class="chat-messages"></div>
+      <div class="chat-input-bar">
+        <input
+          id="msgInput"
+          type="text"
+          placeholder="Type a message..."
+          autocomplete="off"
+        />
+        <button onclick="sendMessage()" class="send-btn">➤</button>
+      </div>
+    </section>
+
+    <!-- ══════════════════════════════════════════════ DASHBOARD PAGE ════════ -->
+    <section id="dashboardPage" class="page">
+      <h1 class="title">My Dashboard</h1>
+      <div class="stats-row">
+        <div class="stat-card">
+          <div id="statTrips" class="stat-num">0</div>
+          <div class="stat-label">Trips Posted</div>
+        </div>
+        <div class="stat-card">
+          <div id="statGroups" class="stat-num">0</div>
+          <div class="stat-label">Groups Created</div>
+        </div>
+        <div class="stat-card">
+          <div id="statRatings" class="stat-num">0</div>
+          <div class="stat-label">Ratings Given</div>
+        </div>
+        <div class="stat-card">
+          <div id="statPendingRequests" class="stat-num">0</div>
+          <div class="stat-label">Pending Requests</div>
+        </div>
+      </div>
+
+      <!-- Dashboard Tabs -->
+      <div class="dashboard-tabs">
+        <span
+          id="dashListingsTab"
+          class="active"
+          onclick="showDashTab('listings')"
+          >📋 My Listings</span
+        >
+        <span id="dashGroupsTab" onclick="showDashTab('groups')"
+          >🎒 My Groups</span
+        >
+        <span id="dashRequestsTab" onclick="showDashTab('requests')"
+          >📩 Join Requests</span
+        >
+        <span id="dashSentTab" onclick="showDashTab('sent')"
+          >📤 My Requests</span
+        >
+      </div>
+
+      <!-- My Listings Tab -->
+      <div id="dashListingsContent" class="my-groups-section">
+        <div class="section-header">
+          <h2 class="section-title">📋 My Listings</h2>
+        </div>
+        <div id="myListingsGrid" class="results-grid"></div>
+      </div>
+
+      <!-- My Groups Tab -->
+      <div id="dashGroupsContent" class="my-groups-section hidden">
+        <div class="section-header">
+          <h2 class="section-title">🎒 Groups I Created</h2>
+          <button onclick="switchPage('createGroupPage')">
+            ＋ Create New Group
+          </button>
+        </div>
+        <div id="myGroupsGrid" class="results-grid"></div>
+      </div>
+
+      <!-- Join Requests Tab (Received) -->
+      <div id="dashRequestsContent" class="my-groups-section hidden">
+        <div class="section-header">
+          <h2 class="section-title">📩 Join Requests</h2>
+          <p style="font-size: 13px; opacity: 0.6">
+            Requests from others to join your groups
+          </p>
+        </div>
+        <div id="receivedRequestsGrid" class="results-grid"></div>
+      </div>
+
+      <!-- My Sent Requests Tab -->
+      <div id="dashSentContent" class="my-groups-section hidden">
+        <div class="section-header">
+          <h2 class="section-title">📤 My Sent Requests</h2>
+          <p style="font-size: 13px; opacity: 0.6">
+            Requests you sent to join other groups
+          </p>
+        </div>
+        <div id="sentRequestsGrid" class="results-grid"></div>
+      </div>
+
+      <div class="action-row" style="justify-content: center; margin-top: 20px">
+        <button class="secondary-btn" onclick="backToCases()">← Back</button>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════ EXPERIENCE PAGE ══════════ -->
+    <section id="experiencePage" class="page">
+      <h1 class="title">⭐ Experience</h1>
+      <div class="page-tabs">
+        <span id="expJourneyTab" class="active" onclick="showExpTab('journey')"
+          >Rate Journey</span
+        >
+        <span id="expMemberTab" onclick="showExpTab('member')"
+          >Rate / Report Member</span
+        >
+      </div>
+
+      <!-- Rate Journey -->
+      <div id="expJourneyForm" class="exp-form-wrap">
+        <p class="exp-hint" style="margin-bottom: 8px">
+          Which journey are you rating? *
+        </p>
+        <select id="journeySelect" style="width: 100%; margin-bottom: 18px">
+          <option value="">Select a journey...</option>
+        </select>
+        <p class="exp-hint">How was your overall travel experience? *</p>
+        <div class="star-row" id="journeyStars">
+          <span class="star" onclick="setStars('journey', 1)">★</span>
+          <span class="star" onclick="setStars('journey', 2)">★</span>
+          <span class="star" onclick="setStars('journey', 3)">★</span>
+          <span class="star" onclick="setStars('journey', 4)">★</span>
+          <span class="star" onclick="setStars('journey', 5)">★</span>
+        </div>
+        <textarea
+          id="journeyComment"
+          class="extra-textarea"
+          placeholder="Tell us about your journey (optional)..."
+        ></textarea>
+        <div class="action-row">
+          <button onclick="submitJourneyRating()">⭐ Submit Rating</button>
+          <button class="secondary-btn" onclick="backToCases()">← Back</button>
+        </div>
+      </div>
+
+      <!-- Rate / Report Member -->
+      <div id="expMemberForm" class="exp-form-wrap hidden">
+        <p class="exp-hint">
+          Enter the VIT email of the member you travelled with:
+        </p>
+        <div class="member-lookup-row">
+          <input
+            id="memberLookupEmail"
+            type="email"
+            placeholder="member@vitstudent.ac.in"
+          />
+          <button onclick="lookupMember()">🔍 Find</button>
+        </div>
+        <div id="memberLookupResult" class="member-lookup-result hidden">
+          <div class="member-found-card">
+            <div
+              id="memberFoundAvatar"
+              class="result-avatar small-avatar"
+            ></div>
+            <div>
+              <strong id="memberFoundName">—</strong>
+              <p id="memberFoundReg" style="font-size: 12px; opacity: 0.6"></p>
+            </div>
+          </div>
+          <div class="exp-sub-tabs">
+            <span
+              id="rateSubTab"
+              class="active"
+              onclick="showMemberSubTab('rate')"
+              >⭐ Rate</span
+            >
+            <span id="reportSubTab" onclick="showMemberSubTab('report')"
+              >🚩 Report</span
+            >
+          </div>
+          <div id="memberRateForm">
+            <div class="star-row" id="memberStars">
+              <span class="star" onclick="setStars('member', 1)">★</span>
+              <span class="star" onclick="setStars('member', 2)">★</span>
+              <span class="star" onclick="setStars('member', 3)">★</span>
+              <span class="star" onclick="setStars('member', 4)">★</span>
+              <span class="star" onclick="setStars('member', 5)">★</span>
+            </div>
+            <textarea
+              id="memberRateComment"
+              class="extra-textarea"
+              placeholder="Leave a comment (optional)..."
+            ></textarea>
+            <div class="action-row">
+              <button onclick="submitMemberRating()">⭐ Submit Rating</button>
+            </div>
+          </div>
+          <div id="memberReportForm" class="hidden">
+            <select id="reportReason">
+              <option value="">Select a reason</option>
+              <option>No-show / cancelled last minute</option>
+              <option>Inappropriate behaviour</option>
+              <option>Harassment</option>
+              <option>Fake profile details</option>
+              <option>Other</option>
+            </select>
+            <textarea
+              id="reportDescription"
+              class="extra-textarea"
+              placeholder="Describe the issue in detail..."
+            ></textarea>
+            <div class="action-row">
+              <button onclick="submitMemberReport()" class="danger-btn">
+                🚩 Submit Report
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ════════════════════════════════════════════ SETTINGS PAGE ═══════════ -->
+    <section id="settingsPage" class="page">
+      <h1 class="title">⚙️ Settings</h1>
+      <div class="settings-card">
+        <div class="settings-section">
+          <h3 class="settings-heading">🎨 Theme</h3>
+          <div class="theme-options">
+            <div
+              class="theme-option"
+              id="themeOptDefault"
+              onclick="applyTheme('default')"
+            >
+              <div class="theme-preview default-preview"></div>
+              <span>Ocean (Default)</span>
+            </div>
+            <div
+              class="theme-option"
+              id="themeOptDark"
+              onclick="applyTheme('dark')"
+            >
+              <div class="theme-preview dark-preview"></div>
+              <span>Deep Dark</span>
+            </div>
+            <div
+              class="theme-option"
+              id="themeOptLight"
+              onclick="applyTheme('light')"
+            >
+              <div class="theme-preview light-preview"></div>
+              <span>Light</span>
+            </div>
+          </div>
+        </div>
+        <div class="settings-section">
+          <h3 class="settings-heading">ℹ️ About</h3>
+          <p class="settings-info">Campus Travel Connect</p>
+          <p class="settings-info" style="opacity: 0.5">
+            Version 1.0.0 · VIT Chennai
+          </p>
+          <p class="settings-info" style="opacity: 0.45; font-size: 12px">
+            Made with ❤️ for VIT students
+          </p>
+        </div>
+      </div>
+      <div class="action-row" style="margin-top: 24px">
+        <button class="secondary-btn" onclick="backToCases()">← Back</button>
+      </div>
+    </section>
+
+    <!-- ════════════════════════════════════ REPORT AN ISSUE PAGE ═══════════ -->
+    <section id="reportIssuePage" class="page">
+      <h1 class="title">🚩 Report an Issue</h1>
+      <div class="report-issue-wrap">
+        <p class="exp-hint">
+          Found a bug or problem? Let us know and we'll fix it ASAP.
+        </p>
+        <label class="field-label">Issue Category *</label>
+        <select id="issueCategory">
+          <option value="">Select Category</option>
+          <option>Bug / App Crash</option>
+          <option>UI / Display Problem</option>
+          <option>Wrong or Missing Data</option>
+          <option>Login / Account Issue</option>
+          <option>Performance / Slow</option>
+          <option>Other</option>
+        </select>
+        <label class="field-label">Description *</label>
+        <textarea
+          id="issueDescription"
+          class="extra-textarea"
+          style="min-height: 120px"
+          placeholder="Describe the issue in detail. What happened? What did you expect?"
+        ></textarea>
+        <label class="field-label">Screenshot (optional, max 5 MB)</label>
+        <div
+          class="screenshot-upload-box"
+          onclick="document.getElementById('issueScreenshotInput').click()"
+        >
+          <span id="screenshotHint">📎 Click to attach screenshot</span>
+          <input
+            type="file"
+            id="issueScreenshotInput"
+            accept="image/*"
+            class="hidden"
+            onchange="handleScreenshotPreview(event)"
+          />
+        </div>
+        <img
+          id="screenshotPreview"
+          class="screenshot-preview hidden"
+          alt="Preview"
+        />
+        <div class="action-row" style="margin-top: 16px">
+          <button id="submitIssueBtn" onclick="submitIssueReport()">
+            🚩 Submit Report
+          </button>
+          <button class="secondary-btn" onclick="backToCases()">← Back</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══════════════════════════════════ CREATE GROUP PAGE ═══════════════ -->
+    <section id="createGroupPage" class="page">
+      <h1 class="title">🎒 Create a Travel Group</h1>
+      <div class="create-group-wrap">
+        <label class="field-label">From</label>
+        <input type="text" id="cgFrom" value="VIT Chennai" readonly />
+        <label class="field-label">Destination *</label>
+        <select id="cgToSelect" onchange="handleOtherInput(this, 'cgToOther')">
+          <option value="">Select Destination *</option>
+          <option>Mumbai</option>
+          <option>Delhi</option>
+          <option>Kolkata</option>
+          <option>Bangalore</option>
+          <option>Hyderabad</option>
+          <option>Ahmedabad</option>
+          <option>Pune</option>
+          <option>Jaipur</option>
+          <option>Lucknow</option>
+          <option>Bhopal</option>
+          <option>Chandigarh</option>
+          <option>Kochi</option>
+          <option>Coimbatore</option>
+          <option>Madurai</option>
+          <option>Trichy</option>
+          <option>Vijayawada</option>
+          <option>Visakhapatnam</option>
+          <option>Bhubaneswar</option>
+          <option>Patna</option>
+          <option>Guwahati</option>
+          <option>Indore</option>
+          <option>Nagpur</option>
+          <option>Surat</option>
+          <option>Agra</option>
+          <option>Varanasi</option>
+          <option>Dehradun</option>
+          <option value="other">Other</option>
+        </select>
+        <input
+          type="text"
+          id="cgToOther"
+          placeholder="Enter destination city"
+          class="hidden"
+        />
+        <label class="field-label">Travel Date *</label>
+        <input type="date" id="cgDate" />
+        <label class="field-label">Travel Mode *</label>
+        <select id="cgMode">
+          <option value="">Select Travel Mode *</option>
+          <option>Train</option>
+          <option>Flight</option>
+          <option>Bus</option>
+          <option>Car</option>
+        </select>
+        <label class="field-label">Gender Preference</label>
+        <select id="cgGender">
+          <option>No Preference</option>
+          <option>Male</option>
+          <option>Female</option>
+        </select>
+        <label class="field-label">Max Members *</label>
+        <input type="number" id="cgMax" min="2" max="20" placeholder="e.g. 4" />
+        <label class="field-label">Extra Info (optional)</label>
+        <textarea
+          id="cgExtraInfo"
+          class="extra-textarea"
+          placeholder="e.g. Prefer Rajdhani Express, flexible on timing, window seat preferred"
+        ></textarea>
+        <div class="action-row" style="margin-top: 8px">
+          <button id="createGroupBtn" onclick="submitCreateGroup()">
+            Create Group 🎒
+          </button>
+          <button class="secondary-btn" onclick="switchPage('routePage')">
+            ← Back
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Google OAuth Configuration -->
+    <script>
+      // 🔐 GOOGLE SIGN-IN CONFIGURED
+      window.GOOGLE_CLIENT_ID =
+        "432054424669-1defaovsduj65mhdajsotna395m75gc4.apps.googleusercontent.com";
+    </script>
+    <script src="script.js"></script>
+  </body>
+</html>
