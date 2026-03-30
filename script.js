@@ -4,7 +4,9 @@
 // ════════════════════════════════════════════════════════════════════════════
 
 // ── API CONFIGURATION ──────────────────────────────────────────────────────────
-const API_URL = "https://campus-travel-connect-2-0.onrender.com/api"; // Change to Render URL in production
+const API_URL =
+  window.API_URL ||
+  "https://campus-travel-connect-2-0.onrender.com/api"; // Override with window.API_URL in production if needed
 let authToken = localStorage.getItem("authToken") || null;
 
 // API Helper Functions
