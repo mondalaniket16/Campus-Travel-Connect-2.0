@@ -124,7 +124,7 @@ router.get('/:id', [
 });
 
 // @route   GET /api/listings/:id/members
-// @desc    Get group members
+// @desc    Get group members with full details
 router.get('/:id/members', auth, [
   param('id').isMongoId()
 ], validate, async (req, res) => {
@@ -136,7 +136,13 @@ router.get('/:id/members', auth, [
 
     const members = await User.find({ 
       _id: { $in: listing.members || [] } 
-    }).select('name email photoURL');
+    }).select('name email photoURL reg phone dept');
+
+    res.json({ members });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch members' });
+  }
+});
 
     res.json({ members });
   } catch (error) {

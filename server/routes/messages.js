@@ -100,11 +100,14 @@ router.post('/start/:userId', auth, async (req, res) => {
   try {
     const otherUserId = req.params.userId;
 
-    // Validate MongoDB ObjectId format
-    if (!otherUserId.match(/^[0-9a-fA-F]{24}$/)) {
-      return res.status(400).json({ error: 'Invalid user ID format' });
+    // More flexible validation - accept both ObjectId and string formats
+    if (!otherUserId || otherUserId === 'undefined' || otherUserId === 'null') {
+      return res.status(400).json({ error: 'Invalid user ID' });
     }
 
+    // If it's not a valid ObjectId format, still try to find by string
+    let userIdToUse = otherUserId;
+    
     if (otherUserId === req.userId.toString()) {
       return res.status(400).json({ error: 'Cannot start conversation with yourself' });
     }

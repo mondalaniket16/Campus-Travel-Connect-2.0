@@ -28,6 +28,10 @@ const state = {
 
 const pageHistory = ["authPage"];
 
+// Dynamic navbar state
+let lastScrollTop = 0;
+let navbarVisible = true;
+
 const API = {
   async request(endpoint, options = {}) {
     const headers = {
@@ -913,7 +917,17 @@ async function messageUserFromListing(userId, name) {
 
 async function openChatWith(otherUserId, fallbackName = "User") {
   try {
+    console.log('[openChatWith] Starting chat with userId:', otherUserId);
+    
+    // Ensure we have a valid user ID
+    if (!otherUserId || otherUserId === 'undefined' || otherUserId === 'null') {
+      throw new Error('Invalid user ID');
+    }
+    
     const data = await API.post(`/messages/start/${otherUserId}`, {});
+    
+    console.log('[openChatWith] Chat started successfully:', data);
+    
     activeConversationId = data.conversationId;
     activeConversationUser = {
       id: otherUserId,
@@ -931,6 +945,7 @@ async function openChatWith(otherUserId, fallbackName = "User") {
     switchPage("chatConvPage");
     await loadConversation();
   } catch (error) {
+    console.error('[openChatWith] Error:', error);
     toast(error.message, "error");
   }
 }
@@ -1314,13 +1329,63 @@ async function viewGroupMembers(groupId) {
       return;
     }
 
-    toast(
-      members.map((member) => member.name).join(", ").slice(0, 120),
-      "info",
-    );
+    // Create and show member details modal
+    showMemberDetailsModal(members);
   } catch (error) {
     toast(error.message, "error");
   }
+}
+
+function showMemberDetailsModal(members) {
+  // Remove existing modal if any
+  const existing = document.getElementById('memberModal');
+  if (existing) existing.remove();
+
+  const modal = document.createElement('div');
+  modal.id = 'memberModal';
+  modal.className = 'member-modal';
+  
+  modal.innerHTML = `
+    <div class="member-modal-backdrop" onclick="closeMemberModal()"></div>
+    <div class="member-modal-content">
+      <div class="member-modal-header">
+        <h3>👥 Group Members (${members.length})</h3>
+        <button class="modal-close-btn" onclick="closeMemberModal()">✕</button>
+      </div>
+      <div class="member-list">
+        ${members.map(member => `
+          <div class="member-detail-card">
+            <div class="member-avatar">${getInitials(member.name || 'U')}</div>
+            <div class="member-info">
+              <h4>${member.name || 'Unknown'}</h4>
+              ${member.reg ? `<p class="member-detail"><strong>Reg No:</strong> ${member.reg}</p>` : ''}
+              ${member.email ? `<p class="member-detail"><strong>Email:</strong> <a href="mailto:${member.email}">${member.email}</a></p>` : ''}
+              ${member.phone ? `<p class="member-detail"><strong>Phone:</strong> <a href="tel:${member.phone}">${member.phone}</a></p>` : ''}
+              ${member.dept ? `<p class="member-detail"><strong>Dept:</strong> ${member.dept}</p>` : ''}
+            </div>
+            <button class="message-member-btn" onclick="messageUserFromModal('${member._id}', '${(member.name || 'User').replace(/'/g, "\\'")}')">💬</button>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+  `;
+  
+  document.body.appendChild(modal);
+  // Trigger animation
+  setTimeout(() => modal.classList.add('active'), 10);
+}
+
+function closeMemberModal() {
+  const modal = document.getElementById('memberModal');
+  if (modal) {
+    modal.classList.remove('active');
+    setTimeout(() => modal.remove(), 300);
+  }
+}
+
+async function messageUserFromModal(userId, name) {
+  closeMemberModal();
+  await openChatWith(userId, name);
 }
 
 async function updateNotificationBadges() {
@@ -1736,4 +1801,46 @@ window.addEventListener("load", () => {
   loadSettingsPage();
   showLogin();
   initAuth();
+  initDynamicNavbar();
 });
+
+// ══════════════════════════════════════════════════════════════════════
+// DYNAMIC NAVBAR - Hide on scroll down, show on scroll up
+// ══════════════════════════════════════════════════════════════════════
+function initDynamicNavbar() {
+  let lastScrollTop = 0;
+  const navbar = document.getElementById('userBar');
+  const scrollThreshold = 100; // Start hiding after 100px scroll
+  
+  window.addEventListener('scroll', () => {
+    if (!navbar || navbar.classList.contains('hidden')) return;
+    
+    const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+    
+    // Add scrolled class for background effect
+    if (scrollTop > 50) {
+      navbar.classList.add('scrolled');
+    } else {
+      navbar.classList.remove('scrolled');
+    }
+    
+    // Hide/show based on scroll direction
+    if (scrollTop > scrollThreshold) {
+      if (scrollTop > lastScrollTop && navbarVisible) {
+        // Scrolling down - hide navbar
+        navbar.classList.add('hidden-nav');
+        navbarVisible = false;
+      } else if (scrollTop < lastScrollTop && !navbarVisible) {
+        // Scrolling up - show navbar
+        navbar.classList.remove('hidden-nav');
+        navbarVisible = true;
+      }
+    } else {
+      // Near top - always show
+      navbar.classList.remove('hidden-nav');
+      navbarVisible = true;
+    }
+    
+    lastScrollTop = scrollTop <= 0 ? 0 : scrollTop;
+  }, { passive: true });
+}
