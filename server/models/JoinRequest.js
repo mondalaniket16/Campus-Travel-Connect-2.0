@@ -13,10 +13,7 @@ const joinRequestSchema = new mongoose.Schema({
   respondedAt: { type: Date },
 }, { timestamps: true });
 
-// Compound unique index to prevent duplicate pending requests
-joinRequestSchema.index(
-  { senderId: 1, groupId: 1, status: 1 },
-  { unique: true }
-);
+// Basic index for performance - NOT unique to avoid blocking legitimate requests
+joinRequestSchema.index({ senderId: 1, groupId: 1, status: 1 });
 
 module.exports = mongoose.model('JoinRequest', joinRequestSchema);

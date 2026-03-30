@@ -39,19 +39,23 @@ router.get('/received', auth, async (req, res) => {
 });
 
 // @route   GET /api/join-requests/check/:groupId
-// @desc    Check if user already sent a request to specific group
+// @desc    Check if user already sent a request to specific group (for UI updates)
 router.get('/check/:groupId', auth, [
   param('groupId').isMongoId()
 ], validate, async (req, res) => {
   try {
+    console.log('[GET /check/:groupId] Checking for user', req.userId, 'group', req.params.groupId);
+    
     const existing = await JoinRequest.findOne({
       senderId: req.userId,
       groupId: req.params.groupId,
       status: 'pending'
     });
 
+    console.log('[GET /check/:groupId] Found existing request:', !!existing);
     res.json({ exists: !!existing });
   } catch (error) {
+    console.error('[GET /check/:groupId] Error:', error);
     res.status(500).json({ error: 'Failed to check request' });
   }
 });
@@ -77,22 +81,32 @@ router.post('/', auth, [
       return res.status(404).json({ error: 'Group not found' });
     }
 
-    // Check if already a member
-    const isAlreadyMember = (listing.members || []).some(
-      (memberId) => String(memberId) === String(req.userId)
+    console.log('[POST /join-requests] Found group:', listing.to, 'by', listing.uid);
+
+    // Check if user is the group creator
+    if (String(listing.uid) === String(req.userId)) {
+      console.log('[POST /join-requests] User is the group creator');
+      return res.status(400).json({ error: 'You cannot join your own group' });
+    }
+
+    // Check if already a member (using safer comparison)
+    const members = listing.members || [];
+    const isAlreadyMember = members.some(memberId => 
+      String(memberId) === String(req.userId)
     );
+    
     if (isAlreadyMember) {
-      console.log('[POST /join-requests] User already a member');
+      console.log('[POST /join-requests] User is already a member');
       return res.status(400).json({ error: 'You are already a member of this group' });
     }
 
     // Check if group is full
-    if (listing.members?.length >= listing.maxMembers) {
+    if (members.length >= (listing.maxMembers || 4)) {
       console.log('[POST /join-requests] Group is full');
-      return res.status(400).json({ error: 'This group is full. Cannot accept more members.' });
+      return res.status(400).json({ error: 'This group is full and cannot accept more members' });
     }
 
-    // Check for existing pending request FROM THIS USER TO THIS GROUP ONLY
+    // Check for existing pending request from this user to this specific group
     const existingRequest = await JoinRequest.findOne({
       senderId: req.userId,
       groupId: groupId,
@@ -100,26 +114,26 @@ router.post('/', auth, [
     });
 
     if (existingRequest) {
-      console.log('[POST /join-requests] User already has pending request for this specific group');
+      console.log('[POST /join-requests] Found existing pending request:', existingRequest._id);
       return res.status(400).json({ error: 'You have already sent a request to this group' });
     }
 
-    // Create the join request
+    // All checks passed - create the join request
     const joinRequest = new JoinRequest({
       senderId: req.userId,
       senderName: req.user.name,
       senderEmail: req.user.email,
       senderPhoto: req.user.photoURL || '',
       groupId,
-      creatorId: creatorId || listing.uid,
-      destination: destination || listing.to,
+      creatorId: listing.uid,
+      destination: listing.to,
       message,
       status: 'pending'
     });
 
     await joinRequest.save();
 
-    console.log('[POST /join-requests] Request created:', joinRequest._id);
+    console.log('[POST /join-requests] Request created successfully:', joinRequest._id);
 
     // Create notification for group leader
     await Notification.create({
@@ -130,16 +144,14 @@ router.post('/', auth, [
       data: { requestId: joinRequest._id, groupId, senderId: req.userId }
     });
 
-    res.status(201).json({ request: joinRequest, message: 'Request sent successfully' });
+    res.status(201).json({ 
+      request: joinRequest, 
+      message: 'Request sent successfully' 
+    });
+    
   } catch (error) {
     console.error('[POST /join-requests] Error:', error);
-    
-    if (error.code === 11000) {
-      // Duplicate key error
-      return res.status(400).json({ error: 'You have already sent a request to this group' });
-    }
-    
-    res.status(500).json({ error: 'Failed to send request' });
+    res.status(500).json({ error: 'Failed to send request. Please try again.' });
   }
 });
 

@@ -929,16 +929,29 @@ async function submitCreateGroup() {
 
 async function requestJoinGroup(groupId) {
   try {
+    console.log('[requestJoinGroup] Attempting to join group:', groupId);
+    
     await API.post("/join-requests", { groupId });
-    toast("Join request sent.", "success");
+    toast("Join request sent successfully!", "success");
     updateNotificationBadges();
     await searchGroups();
   } catch (error) {
-    if ((error.message || "").toLowerCase().includes("already sent")) {
-      toast("Request already sent for this group.", "info");
-      return;
+    console.error('[requestJoinGroup] Error:', error);
+    
+    const errorMessage = error.message || 'Failed to send request';
+    
+    // Handle specific error cases with user-friendly messages
+    if (errorMessage.includes('already sent') || errorMessage.includes('already have')) {
+      toast("You have already sent a request to this group.", "info");
+    } else if (errorMessage.includes('already a member')) {
+      toast("You are already a member of this group.", "info");
+    } else if (errorMessage.includes('Group is full')) {
+      toast("This group is full and cannot accept more members.", "info");
+    } else if (errorMessage.includes('Group not found')) {
+      toast("This group no longer exists.", "error");
+    } else {
+      toast(errorMessage, "error");
     }
-    toast(error.message, "error");
   }
 }
 
