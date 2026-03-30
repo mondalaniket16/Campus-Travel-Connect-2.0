@@ -8,6 +8,58 @@ const validate = require('../middleware/validate');
 
 const router = express.Router();
 
+// ────────────────────────────────────────────────────────────────────────────
+// SPECIFIC ROUTES (must come BEFORE parameterized routes)
+// ────────────────────────────────────────────────────────────────────────────
+
+// @route   GET /api/join-requests/sent
+// @desc    Get requests sent by current user
+router.get('/sent', auth, async (req, res) => {
+  try {
+    const requests = await JoinRequest.find({ senderId: req.userId })
+      .sort({ createdAt: -1 });
+
+    res.json({ requests });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch requests' });
+  }
+});
+
+// @route   GET /api/join-requests/received
+// @desc    Get requests for user's groups
+router.get('/received', auth, async (req, res) => {
+  try {
+    const requests = await JoinRequest.find({ creatorId: req.userId })
+      .sort({ createdAt: -1 });
+
+    res.json({ requests });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch requests' });
+  }
+});
+
+// @route   GET /api/join-requests/check/:groupId
+// @desc    Check if user already sent a request to specific group
+router.get('/check/:groupId', auth, [
+  param('groupId').isMongoId()
+], validate, async (req, res) => {
+  try {
+    const existing = await JoinRequest.findOne({
+      senderId: req.userId,
+      groupId: req.params.groupId,
+      status: 'pending'
+    });
+
+    res.json({ exists: !!existing });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to check request' });
+  }
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// PARAMETERIZED ROUTES (come AFTER specific routes)
+// ────────────────────────────────────────────────────────────────────────────
+
 // @route   POST /api/join-requests
 // @desc    Send join request
 router.post('/', auth, [
@@ -37,7 +89,7 @@ router.post('/', auth, [
       return res.status(400).json({ error: 'This group is full. Cannot accept more members.' });
     }
 
-    // Check for existing pending request FROM THIS USER
+    // Check for existing pending request FROM THIS USER TO THIS GROUP ONLY
     const existingRequest = await JoinRequest.findOne({
       senderId: req.userId,
       groupId: groupId,
@@ -45,18 +97,11 @@ router.post('/', auth, [
     });
 
     if (existingRequest) {
-      console.log('[POST /join-requests] User already has pending request');
+      console.log('[POST /join-requests] User already has pending request for this specific group');
       return res.status(400).json({ error: 'You have already sent a request to this group' });
     }
 
-    // Check total pending requests to avoid spam
-    const totalPendingRequests = await JoinRequest.countDocuments({
-      groupId: groupId,
-      status: 'pending'
-    });
-
-    console.log('[POST /join-requests] Pending requests for group:', totalPendingRequests);
-
+    // Create the join request
     const joinRequest = new JoinRequest({
       senderId: req.userId,
       senderName: req.user.name,
@@ -87,55 +132,11 @@ router.post('/', auth, [
     console.error('[POST /join-requests] Error:', error);
     
     if (error.code === 11000) {
-      // Duplicate key error - means user already has a pending request
+      // Duplicate key error
       return res.status(400).json({ error: 'You have already sent a request to this group' });
     }
     
     res.status(500).json({ error: 'Failed to send request' });
-  }
-});
-
-// @route   GET /api/join-requests/check/:groupId
-// @desc    Check if user already sent a request
-router.get('/check/:groupId', auth, [
-  param('groupId').isMongoId()
-], validate, async (req, res) => {
-  try {
-    const existing = await JoinRequest.findOne({
-      senderId: req.userId,
-      groupId: req.params.groupId,
-      status: 'pending'
-    });
-
-    res.json({ exists: !!existing });
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to check request' });
-  }
-});
-
-// @route   GET /api/join-requests/sent
-// @desc    Get requests sent by current user
-router.get('/sent', auth, async (req, res) => {
-  try {
-    const requests = await JoinRequest.find({ senderId: req.userId })
-      .sort({ createdAt: -1 });
-
-    res.json({ requests });
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to fetch requests' });
-  }
-});
-
-// @route   GET /api/join-requests/received
-// @desc    Get requests for user's groups
-router.get('/received', auth, async (req, res) => {
-  try {
-    const requests = await JoinRequest.find({ creatorId: req.userId })
-      .sort({ createdAt: -1 });
-
-    res.json({ requests });
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to fetch requests' });
   }
 });
 
