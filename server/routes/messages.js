@@ -29,9 +29,13 @@ router.get('/conversations', auth, async (req, res) => {
 router.get('/conversation/:conversationId', auth, async (req, res) => {
   try {
     const { conversationId } = req.params;
+    
+    console.log('[GET /conversation/:conversationId] Fetching messages for:', conversationId);
+    
     const conversation = await Conversation.findById(conversationId);
 
     if (!conversation) {
+      console.log('[GET /conversation/:conversationId] Conversation not found');
       return res.json({ messages: [] });
     }
 
@@ -40,6 +44,7 @@ router.get('/conversation/:conversationId', auth, async (req, res) => {
     );
 
     if (!isParticipant) {
+      console.log('[GET /conversation/:conversationId] User not a participant');
       return res.status(403).json({ error: 'Not authorized for this conversation' });
     }
 
@@ -47,8 +52,11 @@ router.get('/conversation/:conversationId', auth, async (req, res) => {
       .sort({ createdAt: 1 })
       .limit(100);
 
+    console.log('[GET /conversation/:conversationId] Found', messages.length, 'messages');
+
     res.json({ messages });
   } catch (error) {
+    console.error('[GET /conversation/:conversationId] Error:', error);
     res.status(500).json({ error: 'Failed to fetch messages' });
   }
 });
@@ -61,9 +69,13 @@ router.post('/', auth, [
 ], validate, async (req, res) => {
   try {
     const { conversationId, content } = req.body;
+    
+    console.log('[POST /messages] Sending message to conversation:', conversationId);
+    
     const conversation = await Conversation.findById(conversationId);
 
     if (!conversation) {
+      console.error('[POST /messages] Conversation not found:', conversationId);
       return res.status(404).json({ error: 'Conversation not found' });
     }
 
@@ -72,6 +84,7 @@ router.post('/', auth, [
     );
 
     if (!isParticipant) {
+      console.error('[POST /messages] User not authorized');
       return res.status(403).json({ error: 'Not authorized for this conversation' });
     }
 
@@ -87,9 +100,11 @@ router.post('/', auth, [
     conversation.lastMessageTime = new Date();
     await conversation.save();
 
+    console.log('[POST /messages] Message sent successfully');
+
     res.status(201).json({ message });
   } catch (error) {
-    console.error('Send message error:', error);
+    console.error('[POST /messages] Error:', error);
     res.status(500).json({ error: 'Failed to send message' });
   }
 });
@@ -120,17 +135,30 @@ router.post('/start/:userId', auth, async (req, res) => {
 
     console.log('[POST /messages/start/:userId] Found user:', otherUser.name);
 
-    const sortedIds = [req.userId.toString(), otherUserId].sort();
-    const conversationId = sortedIds.join('_');
+    const sortedIds = [req.userId.toString(), otherUserId.toString()].sort();
+    
+    console.log('[POST /messages/start/:userId] Looking for conversation between:', sortedIds);
 
-    let conversation = await Conversation.findById(conversationId);
+    // Find existing conversation
+    let conversation = await Conversation.findOne({
+      participants: { $all: [req.userId, otherUserId] }
+    });
 
     if (!conversation) {
+      console.log('[POST /messages/start/:userId] Creating new conversation');
       conversation = new Conversation({
-        _id: conversationId,
         participants: [req.userId, otherUserId]
       });
-      await conversation.save();
+      
+      try {
+        await conversation.save();
+        console.log('[POST /messages/start/:userId] Conversation created:', conversation._id);
+      } catch (saveError) {
+        console.error('[POST /messages/start/:userId] Error saving conversation:', saveError);
+        throw saveError;
+      }
+    } else {
+      console.log('[POST /messages/start/:userId] Using existing conversation:', conversation._id);
     }
 
     res.json({ 
@@ -138,7 +166,8 @@ router.post('/start/:userId', auth, async (req, res) => {
       otherUser
     });
   } catch (error) {
-    res.status(500).json({ error: 'Failed to start conversation' });
+    console.error('[POST /messages/start/:userId] Error:', error);
+    res.status(500).json({ error: error.message || 'Failed to start conversation' });
   }
 });
 
