@@ -100,13 +100,13 @@ router.post('/start/:userId', auth, async (req, res) => {
   try {
     const otherUserId = req.params.userId;
 
+    console.log('[POST /messages/start/:userId] Request from:', req.userId, 'to:', otherUserId);
+
     // More flexible validation - accept both ObjectId and string formats
     if (!otherUserId || otherUserId === 'undefined' || otherUserId === 'null') {
+      console.error('[POST /messages/start/:userId] Invalid user ID:', otherUserId);
       return res.status(400).json({ error: 'Invalid user ID' });
     }
-
-    // If it's not a valid ObjectId format, still try to find by string
-    let userIdToUse = otherUserId;
     
     if (otherUserId === req.userId.toString()) {
       return res.status(400).json({ error: 'Cannot start conversation with yourself' });
@@ -114,8 +114,11 @@ router.post('/start/:userId', auth, async (req, res) => {
 
     const otherUser = await User.findById(otherUserId).select('name photoURL');
     if (!otherUser) {
+      console.error('[POST /messages/start/:userId] User not found:', otherUserId);
       return res.status(404).json({ error: 'User not found' });
     }
+
+    console.log('[POST /messages/start/:userId] Found user:', otherUser.name);
 
     const sortedIds = [req.userId.toString(), otherUserId].sort();
     const conversationId = sortedIds.join('_');

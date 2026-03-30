@@ -917,11 +917,16 @@ async function messageUserFromListing(userId, name) {
 
 async function openChatWith(otherUserId, fallbackName = "User") {
   try {
-    console.log('[openChatWith] Starting chat with userId:', otherUserId);
+    console.log('[openChatWith] Starting chat with userId:', otherUserId, 'type:', typeof otherUserId);
     
     // Ensure we have a valid user ID
     if (!otherUserId || otherUserId === 'undefined' || otherUserId === 'null') {
       throw new Error('Invalid user ID');
+    }
+    
+    // Check if trying to message yourself
+    if (String(otherUserId) === String(currentUser.uid)) {
+      throw new Error('Cannot message yourself');
     }
     
     const data = await API.post(`/messages/start/${otherUserId}`, {});
@@ -946,7 +951,7 @@ async function openChatWith(otherUserId, fallbackName = "User") {
     await loadConversation();
   } catch (error) {
     console.error('[openChatWith] Error:', error);
-    toast(error.message, "error");
+    toast(error.message || 'Failed to start conversation', "error");
   }
 }
 
@@ -1322,8 +1327,13 @@ async function cancelJoinRequest(requestId) {
 
 async function viewGroupMembers(groupId) {
   try {
+    console.log('[viewGroupMembers] Fetching members for group:', groupId);
+    
     const data = await API.get(`/listings/${groupId}/members`);
     const members = data.members || [];
+    
+    console.log('[viewGroupMembers] Received members:', members);
+    
     if (!members.length) {
       toast("No members in this group yet.", "info");
       return;
@@ -1332,6 +1342,7 @@ async function viewGroupMembers(groupId) {
     // Create and show member details modal
     showMemberDetailsModal(members);
   } catch (error) {
+    console.error('[viewGroupMembers] Error:', error);
     toast(error.message, "error");
   }
 }
@@ -1353,7 +1364,12 @@ function showMemberDetailsModal(members) {
         <button class="modal-close-btn" onclick="closeMemberModal()">✕</button>
       </div>
       <div class="member-list">
-        ${members.map(member => `
+        ${members.map(member => {
+          // Get member ID - could be _id or id
+          const memberId = member._id || member.id;
+          const memberName = (member.name || 'User').replace(/'/g, "\\'");
+          
+          return `
           <div class="member-detail-card">
             <div class="member-avatar">${getInitials(member.name || 'U')}</div>
             <div class="member-info">
@@ -1363,9 +1379,15 @@ function showMemberDetailsModal(members) {
               ${member.phone ? `<p class="member-detail"><strong>Phone:</strong> <a href="tel:${member.phone}">${member.phone}</a></p>` : ''}
               ${member.dept ? `<p class="member-detail"><strong>Dept:</strong> ${member.dept}</p>` : ''}
             </div>
-            <button class="message-member-btn" onclick="messageUserFromModal('${member._id}', '${(member.name || 'User').replace(/'/g, "\\'")}')">💬</button>
+            ${memberId && memberId !== currentUser.uid ? 
+              `<button class="message-member-btn" onclick="messageUserFromModal('${memberId}', '${memberName}')">💬</button>` :
+              memberId === currentUser.uid ? 
+              `<span class="badge" style="font-size: 12px;">You</span>` :
+              ''
+            }
           </div>
-        `).join('')}
+        `;
+        }).join('')}
       </div>
     </div>
   `;
@@ -1384,6 +1406,14 @@ function closeMemberModal() {
 }
 
 async function messageUserFromModal(userId, name) {
+  console.log('[messageUserFromModal] Called with:', { userId, name });
+  
+  // Validate userId before closing modal
+  if (!userId || userId === 'undefined' || userId === 'null') {
+    toast('Cannot start conversation: Invalid user ID', 'error');
+    return;
+  }
+  
   closeMemberModal();
   await openChatWith(userId, name);
 }
