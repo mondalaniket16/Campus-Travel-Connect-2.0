@@ -52,16 +52,22 @@ router.get('/', optionalAuth, async (req, res) => {
 
     if (type) filter.type = type;
     if (destination) filter.to = new RegExp(destination, 'i');
-    if (transport && transport !== 'Anything') filter.vehicle = transport;
+    if (transport && transport !== 'Anything' && !/select/i.test(transport)) filter.vehicle = transport;
     if (date) filter.date = date;
-    if (gender && gender !== 'No Preference') filter.gender = gender;
+    if (gender && gender !== 'No Preference' && !/select/i.test(gender)) filter.gender = gender;
+
+    console.log('[GET /api/listings] Query params:', req.query);
+    console.log('[GET /api/listings] Filter:', filter);
 
     const listings = await Listing.find(filter)
-      .populate('creator', 'name photoURL email phone')
+      .populate('uid', 'name photoURL email phone')
       .sort({ createdAt: -1 });
+
+    console.log('[GET /api/listings] Found', listings.length, 'listings');
 
     res.json({ listings });
   } catch (error) {
+    console.error('[GET /api/listings] Error:', error);
     res.status(500).json({ error: 'Failed to fetch listings' });
   }
 });
@@ -144,6 +150,8 @@ router.post('/', auth, async (req, res) => {
   try {
     const { type, from, to, date, time, vehicle, gender, notes, maxMembers, members, name, uid } = req.body;
 
+    console.log('[POST /api/listings] Creating listing:', { type, from, to, date, vehicle, gender, maxMembers });
+
     const listing = new Listing({
       type: type || 'match',
       uid: req.userId,
@@ -161,9 +169,11 @@ router.post('/', auth, async (req, res) => {
     });
 
     await listing.save();
+    console.log('[POST /api/listings] Created listing with ID:', listing._id);
+    
     res.status(201).json({ listing, message: 'Listing created successfully' });
   } catch (error) {
-    console.error('Create listing error:', error);
+    console.error('[POST /api/listings] Error:', error);
     res.status(500).json({ error: 'Failed to create listing' });
   }
 });

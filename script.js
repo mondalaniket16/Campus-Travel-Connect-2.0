@@ -648,7 +648,14 @@ async function searchGroups() {
     }
     if (gender && !/select/i.test(gender)) query.append("gender", gender);
 
+    console.log('[searchGroups] Query params:', Object.fromEntries(query.entries()));
+    console.log('[searchGroups] Calling:', `/listings?${query.toString()}`);
+
     const data = await API.get(`/listings?${query.toString()}`);
+    
+    console.log('[searchGroups] Response:', data);
+    console.log('[searchGroups] Found', data.listings?.length || 0, 'listings');
+    
     const listings = (data.listings || []).map(normalizeListing);
 
     if (!listings.length) {
@@ -658,37 +665,42 @@ async function searchGroups() {
 
     results.innerHTML = listings
       .map((listing) => {
-        const isOwner = currentUser && listing.uid === currentUser.uid;
+        const ownerId = listing.uid || (listing.creator && listing.creator._id) || listing.creator;
+        const isOwner = currentUser && String(ownerId) === String(currentUser.uid);
         const isMember =
           currentUser &&
-          listing.members.some((member) => String(member) === String(currentUser.uid));
-        const isFull = listing.members.length >= listing.maxMembers;
+          listing.members && listing.members.length > 0 &&
+          listing.members.some((member) => {
+            const memberId = member._id || member;
+            return String(memberId) === String(currentUser.uid);
+          });
+        const isFull = listing.members && listing.members.length >= (listing.maxMembers || 4);
 
         return `
           <div class="result-card group-card">
             <div class="result-info">
-              <h3>${listing.name}</h3>
+              <h3>${listing.name || "Travel Group"}</h3>
               <div class="group-route">
-                <span class="route-from">${listing.from}</span>
+                <span class="route-from">${listing.from || "VIT Chennai"}</span>
                 <span class="route-arrow">→</span>
-                <span class="route-to">${listing.to}</span>
+                <span class="route-to">${listing.to || "Destination"}</span>
               </div>
-              <p>${listing.date || "Flexible"} · ${listing.vehicle || "Flexible mode"}</p>
+              <p>${listing.date || "Flexible"} · ${listing.vehicle || listing.mode || "Flexible mode"}</p>
               <div class="group-meta">
-                <span class="badge member-badge">${listing.members.length}/${listing.maxMembers} members</span>
-                <span class="badge">${listing.gender}</span>
+                <span class="badge member-badge">${(listing.members || []).length}/${listing.maxMembers || 4} members</span>
+                <span class="badge">${listing.gender || "Any"}</span>
               </div>
-              ${listing.notes ? `<p class="extra-info">${listing.notes}</p>` : ""}
+              ${listing.notes || listing.extraInfo ? `<p class="extra-info">${listing.notes || listing.extraInfo}</p>` : ""}
             </div>
             <div class="group-actions">
               ${
                 isOwner
-                  ? `<button class="delete-btn" onclick="deleteListing('${listing.id}')">Delete</button>`
+                  ? `<button class="delete-btn" onclick="deleteListing('${listing._id || listing.id}')">Delete</button>`
                   : isMember
                     ? `<span class="badge">Joined</span>`
                     : isFull
                       ? `<span class="badge">Group Full</span>`
-                      : `<button class="connect-btn" onclick="requestJoinGroup('${listing.id}')">Request to Join</button>`
+                      : `<button class="connect-btn" onclick="requestJoinGroup('${listing._id || listing.id}')">Request to Join</button>`
               }
             </div>
           </div>
