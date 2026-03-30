@@ -1139,29 +1139,52 @@ async function loadMyGroups() {
   showInlineLoading(container, "Loading your groups...");
 
   try {
-    const data = await API.get("/listings/my?type=group");
-    const groups = (data.listings || []).map(normalizeListing);
+    // Fetch both created groups and groups where user is a member
+    const [myData, allData] = await Promise.all([
+      API.get("/listings/my?type=group"),
+      API.get("/listings?type=group")
+    ]);
+    
+    const myGroups = (myData.listings || []).map(normalizeListing);
+    const allGroups = (allData.listings || []).map(normalizeListing);
+    
+    // Filter groups where current user is a member but not creator
+    const joinedGroups = allGroups.filter(group => {
+      const isMember = group.members && group.members.some(m => {
+        const memberId = m._id || m;
+        return String(memberId) === String(currentUser.uid);
+      });
+      const isCreator = String(group.uid) === String(currentUser.uid);
+      return isMember && !isCreator;
+    });
+    
+    // Combine both lists
+    const groups = [...myGroups, ...joinedGroups];
 
     if (!groups.length) {
-      renderEmptyState(container, "No groups created yet.", "🎒");
+      renderEmptyState(container, "No groups yet. Create or join one!", "🎒");
       return;
     }
 
     container.innerHTML = groups
       .map(
-        (group) => `
+        (group) => {
+          const isCreator = String(group.uid) === String(currentUser.uid);
+          return `
         <div class="result-card">
           <div class="result-info">
             <h3>${group.from} → ${group.to}</h3>
-            <p>${group.date || "No date"} · ${group.vehicle} · ${group.members.length}/${group.maxMembers} members</p>
+            <p>${group.date || "No date"} · ${group.vehicle} · ${(group.members || []).length}/${group.maxMembers} members</p>
             ${group.notes ? `<p class="extra-info">${group.notes}</p>` : ""}
+            ${!isCreator ? '<span class="badge">Joined Group</span>' : '<span class="badge">Your Group</span>'}
           </div>
           <div class="group-actions">
             <button class="connect-btn" onclick="viewGroupMembers('${group.id}')">Members</button>
-            <button class="delete-btn" onclick="deleteListing('${group.id}')">Delete</button>
+            ${isCreator ? `<button class="delete-btn" onclick="deleteListing('${group.id}')">Delete</button>` : ''}
           </div>
         </div>
-      `,
+      `;
+        }
       )
       .join("");
   } catch (error) {
@@ -1254,10 +1277,20 @@ async function loadSentRequests() {
 
 async function handleJoinRequest(requestId, action) {
   try {
+    console.log(`[handleJoinRequest] ${action}ing request:`, requestId);
+    
     await API.put(`/join-requests/${requestId}/${action}`, {});
+    
+    console.log(`[handleJoinRequest] Request ${action}ed successfully`);
+    
     toast(`Request ${action}ed successfully.`, "success");
+    
+    // Reload all related data to show the updated group membership
     await Promise.allSettled([loadReceivedRequests(), loadMyGroups(), updateNotificationBadges()]);
+    
+    console.log('[handleJoinRequest] All data reloaded');
   } catch (error) {
+    console.error('[handleJoinRequest] Error:', error);
     toast(error.message, "error");
   }
 }

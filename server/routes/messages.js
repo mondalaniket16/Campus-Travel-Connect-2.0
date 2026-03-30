@@ -96,11 +96,14 @@ router.post('/', auth, [
 
 // @route   POST /api/messages/start/:userId
 // @desc    Start or get conversation with user
-router.post('/start/:userId', auth, [
-  param('userId').isMongoId()
-], validate, async (req, res) => {
+router.post('/start/:userId', auth, async (req, res) => {
   try {
     const otherUserId = req.params.userId;
+
+    // Validate MongoDB ObjectId format
+    if (!otherUserId.match(/^[0-9a-fA-F]{24}$/)) {
+      return res.status(400).json({ error: 'Invalid user ID format' });
+    }
 
     if (otherUserId === req.userId.toString()) {
       return res.status(400).json({ error: 'Cannot start conversation with yourself' });
