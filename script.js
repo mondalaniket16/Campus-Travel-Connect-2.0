@@ -4,7 +4,7 @@
 // ════════════════════════════════════════════════════════════════════════════
 
 // ── API CONFIGURATION ──────────────────────────────────────────────────────────
-const API_URL = "http://localhost:5000/api"; // Change to Render URL in production
+const API_URL = "https://campus-travel-connect-2-0.onrender.com/api"; // Change to Render URL in production
 let authToken = localStorage.getItem("authToken") || null;
 
 // API Helper Functions
@@ -411,11 +411,16 @@ async function login() {
 async function googleSignIn() {
   try {
     // Check if Google Sign-In SDK is loaded
-    if (typeof google === 'undefined' || !window.GOOGLE_CLIENT_ID) {
-      toast("Google Sign-In not configured. Check console for setup guide.", "error");
+    if (typeof google === "undefined" || !window.GOOGLE_CLIENT_ID) {
+      toast(
+        "Google Sign-In not configured. Check console for setup guide.",
+        "error",
+      );
       console.error("❌ Google Sign-In Setup Required:");
       console.log("1. Get Client ID from: https://console.cloud.google.com/");
-      console.log("2. Add to index.html: <script>window.GOOGLE_CLIENT_ID = 'YOUR_ID';</script>");
+      console.log(
+        "2. Add to index.html: <script>window.GOOGLE_CLIENT_ID = 'YOUR_ID';</script>",
+      );
       console.log("3. See GOOGLE-OAUTH-SETUP.md for detailed guide");
       return;
     }
@@ -425,14 +430,14 @@ async function googleSignIn() {
       client_id: window.GOOGLE_CLIENT_ID,
       callback: handleGoogleCallback,
       auto_select: false,
-      cancel_on_tap_outside: true
+      cancel_on_tap_outside: true,
     });
 
     // Create a temporary container for the Google button
-    const container = document.createElement('div');
-    container.style.position = 'fixed';
-    container.style.top = '-9999px';
-    container.style.left = '-9999px';
+    const container = document.createElement("div");
+    container.style.position = "fixed";
+    container.style.top = "-9999px";
+    container.style.left = "-9999px";
     document.body.appendChild(container);
 
     // Render the button and trigger click
@@ -440,7 +445,7 @@ async function googleSignIn() {
       theme: "outline",
       size: "large",
       type: "standard",
-      text: "signin_with"
+      text: "signin_with",
     });
 
     // Trigger the button click after a short delay
@@ -455,7 +460,6 @@ async function googleSignIn() {
       // Clean up the container after use
       setTimeout(() => document.body.removeChild(container), 500);
     }, 100);
-
   } catch (error) {
     console.error("Google Sign-In Error:", error);
     toast("Google Sign-In failed. Try email login.", "error");
@@ -465,20 +469,25 @@ async function googleSignIn() {
 async function handleGoogleCallback(response) {
   try {
     // Decode JWT token from Google
-    const base64Url = response.credential.split('.')[1];
-    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-    const jsonPayload = decodeURIComponent(atob(base64).split('').map(c => {
-      return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
-    }).join(''));
-    
+    const base64Url = response.credential.split(".")[1];
+    const base64 = base64Url.replace(/-/g, "+").replace(/_/g, "/");
+    const jsonPayload = decodeURIComponent(
+      atob(base64)
+        .split("")
+        .map((c) => {
+          return "%" + ("00" + c.charCodeAt(0).toString(16)).slice(-2);
+        })
+        .join(""),
+    );
+
     const googleUser = JSON.parse(jsonPayload);
-    
+
     // Send to backend
     const data = await API.post("/auth/google", {
       googleId: googleUser.sub,
       email: googleUser.email,
       name: googleUser.name,
-      photoURL: googleUser.picture
+      photoURL: googleUser.picture,
     });
 
     // Store token and user data
@@ -490,7 +499,10 @@ async function handleGoogleCallback(response) {
     // Update UI
     setHeader();
     switchPage("casePage");
-    toast(`Welcome, ${googleUser.given_name || data.user.name.split(' ')[0]}! 🎉`, "success");
+    toast(
+      `Welcome, ${googleUser.given_name || data.user.name.split(" ")[0]}! 🎉`,
+      "success",
+    );
   } catch (error) {
     console.error("Google Auth Error:", error);
     let msg = error.message;
