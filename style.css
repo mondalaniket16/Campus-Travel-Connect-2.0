@@ -1156,24 +1156,27 @@ button:disabled {
 }
 
 .stat-card {
-  min-width: 140px;
-  padding: 24px 32px;
+  min-width: 160px;
+  padding: 24px 20px;
   text-align: center;
   background: rgba(0, 229, 255, 0.08);
   border: 1px solid rgba(0, 229, 255, 0.2);
   border-radius: 16px;
+  transition: all 0.3s ease;
 }
 
 .stat-num {
-  font-size: 42px;
+  font-size: clamp(2rem, 5vw, 42px);
   font-weight: 700;
   color: #00e5ff;
+  white-space: nowrap;
 }
 
 .stat-label {
-  font-size: 13px;
-  opacity: 0.6;
-  margin-top: 4px;
+  font-size: clamp(11px, 2vw, 13px);
+  opacity: 0.7;
+  margin-top: 6px;
+  white-space: nowrap;
 }
 
 /* ── Modal ────────────────────────────────────────────────────────────── */
@@ -2765,5 +2768,394 @@ input:focus, select:focus, textarea:focus {
     padding: 20px;
     background: white;
     color: black;
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   UI Beautification Enhancements
+   ════════════════════════════════════════════════════════════════════════════ */
+
+/* ── Enhanced Button Animations ──────────────────────────────────────────── */
+button {
+  position: relative;
+  overflow: hidden;
+}
+
+button::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 0;
+  height: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.2);
+  transform: translate(-50%, -50%);
+  transition: width 0.6s, height 0.6s;
+}
+
+button:active::before {
+  width: 300px;
+  height: 300px;
+}
+
+/* ── Card Hover Effects ──────────────────────────────────────────────────── */
+.group-card,
+.listing-card,
+.request-card,
+.chat-item,
+.notification-item {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+}
+
+.group-card:hover,
+.listing-card:hover,
+.request-card:hover,
+.chat-item:hover,
+.notification-item:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 12px 24px rgba(0, 229, 255, 0.15) !important;
+}
+
+.group-card::after,
+.listing-card::after,
+.request-card::after,
+.chat-item::after,
+.notification-item::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, rgba(0, 229, 255, 0.1) 0%, transparent 100%);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.group-card:hover::after,
+.listing-card:hover::after,
+.request-card:hover::after,
+.chat-item:hover::after,
+.notification-item:hover::after {
+  opacity: 1;
+}
+
+/* ── Input Focus Enhancement ─────────────────────────────────────────────── */
+input:focus,
+select:focus,
+textarea:focus {
+  animation: inputGlow 0.4s ease-out;
+}
+
+@keyframes inputGlow {
+  from {
+    border-color: #00e5ff;
+    box-shadow: 0 0 0 8px rgba(0, 229, 255, 0.15);
+  }
+  to {
+    border-color: #00e5ff;
+    box-shadow: 0 0 0 3px rgba(0, 229, 255, 0.18);
+  }
+}
+
+/* ── Loading State for Buttons ───────────────────────────────────────────– */
+button.loading {
+  color: transparent;
+  pointer-events: none;
+  position: relative;
+}
+
+button.loading::after {
+  content: '';
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  top: 50%;
+  left: 50%;
+  margin-left: -7px;
+  margin-top: -7px;
+  border: 2px solid rgba(15, 32, 39, 0.3);
+  border-radius: 50%;
+  border-top-color: #0f2027;
+  animation: spin 0.8s linear infinite;
+}
+
+/* ── Modal Backdrop Animation ────────────────────────────────────────────── */
+.modal-overlay {
+  animation: fadeIn 0.3s ease-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.modal {
+  animation: slideUp 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ── Badge Pulse Animation Enhancement ───────────────────────────────────– */
+.badge-pulse {
+  animation: badgePulse 2s ease-in-out infinite;
+}
+
+@keyframes badgePulse {
+  0%, 100% {
+    box-shadow: 0 0 8px rgba(0, 229, 255, 0.4), 0 0 16px rgba(0, 229, 255, 0.2);
+    transform: scale(1);
+  }
+  50% {
+    box-shadow: 0 0 12px rgba(0, 229, 255, 0.6), 0 0 24px rgba(0, 229, 255, 0.3);
+    transform: scale(1.08);
+  }
+}
+
+/* ── Smooth List Item Animation ──────────────────────────────────────────– */
+.list-item,
+.notification-item,
+.chat-item,
+.group-card {
+  animation: listItemSlide 0.4s ease-out;
+}
+
+@keyframes listItemSlide {
+  from {
+    opacity: 0;
+    transform: translateX(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* ── Icon Button Animations ──────────────────────────────────────────────– */
+.icon-btn {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.icon-btn::before {
+  content: '';
+  position: absolute;
+  inset: -6px;
+  background: rgba(0, 229, 255, 0.1);
+  border-radius: 50%;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.icon-btn:hover::before {
+  opacity: 1;
+}
+
+.icon-btn:hover {
+  color: #00e5ff !important;
+}
+
+/* ── Form Validation Visual Feedback ─────────────────────────────────────– */
+input.field-error {
+  animation: shake 0.4s ease-in-out;
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-5px); }
+  75% { transform: translateX(5px); }
+}
+
+/* ── Success Checkmark Animation ─────────────────────────────────────────– */
+.success-check {
+  animation: checkMark 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes checkMark {
+  0% {
+    opacity: 0;
+    transform: scale(0);
+  }
+  50% {
+    transform: scale(1.1);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* ── Smooth Transitions for Color Changes ────────────────────────────────– */
+.sidebar-nav li,
+.page-tabs span,
+.icon-btn,
+a,
+span[role="button"] {
+  transition: color 0.25s ease, background 0.25s ease;
+}
+
+/* ── Enhanced Toast with Slide Animation ─────────────────────────────────– */
+.toast {
+  animation: toastSlide 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes toastSlide {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}
+
+/* ── Disabled State Visual Feedback ──────────────────────────────────────– */
+button:disabled,
+input:disabled,
+select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  filter: grayscale(0.3);
+}
+
+/* ── Page Transition Improvement ─────────────────────────────────────────– */
+.page {
+  animation: pageSlide 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes pageSlide {
+  from {
+    opacity: 0;
+    transform: translateX(15px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* ── Dropdown/Menu Animation ─────────────────────────────────────────────– */
+.dropdown-menu,
+.notification-panel,
+.context-menu {
+  animation: dropdownSlide 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes dropdownSlide {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ── Link Hover Effects ──────────────────────────────────────────────────– */
+a,
+span[role="button"] {
+  position: relative;
+  text-decoration: none;
+}
+
+a::after,
+span[role="button"]::after {
+  content: '';
+  position: absolute;
+  bottom: -2px;
+  left: 0;
+  width: 0;
+  height: 2px;
+  background: #00e5ff;
+  transition: width 0.3s ease;
+}
+
+a:hover::after,
+span[role="button"]:hover::after {
+  width: 100%;
+}
+
+/* ── Enhanced Label Styling ──────────────────────────────────────────────– */
+.form-label,
+label {
+  transition: color 0.25s ease;
+  display: block;
+  font-weight: 500;
+}
+
+input:focus ~ label,
+select:focus ~ label,
+textarea:focus ~ label {
+  color: #00e5ff;
+}
+
+/* ── Improved Scrollbar for better UX ────────────────────────────────────– */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(15, 32, 39, 0.4);
+  border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #00e5ff, #00b8d4);
+  border-radius: 10px;
+  transition: all 0.3s ease;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, #00f7ff, #00e5ff);
+  width: 12px;
+}
+
+/* ── Container Glow Effects ──────────────────────────────────────────────– */
+.container:hover {
+  box-shadow: 0 0 30px rgba(0, 229, 255, 0.1) !important;
+}
+
+/* ── Smooth Fade for Hidden Elements ─────────────────────────────────────– */
+.hidden {
+  opacity: 0 !important;
+  visibility: hidden;
+  transition: opacity 0.3s ease, visibility 0.3s ease;
+}
+
+/* ── Enhanced Notification Badge ─────────────────────────────────────────– */
+.msg-badge,
+.notif-badge {
+  animation: badgePop 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes badgePop {
+  0% {
+    transform: scale(0);
+  }
+  50% {
+    transform: scale(1.2);
+  }
+  100% {
+    transform: scale(1);
   }
 }

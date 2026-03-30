@@ -14,6 +14,8 @@ let activeConversationId = null;
 let activeConversationUser = null;
 let issueScreenshotFile = null;
 let notificationPanelOpen = false;
+let socket = null;
+let unreadMessageCount = 0;
 
 const state = {
   currentPage: "authPage",
@@ -159,6 +161,84 @@ function showInlineLoading(container, message = "Loading...") {
   container.innerHTML = `<div class="chat-loading">${message}</div>`;
 }
 
+// ════════════════════════════════════════════════════════════════════════════
+//  Socket.io Real-Time Connection
+// ════════════════════════════════════════════════════════════════════════════
+
+function initializeSocket() {
+  if (!currentUser || socket?.connected) return;
+  
+  const serverUrl = API_URL.replace('/api', '');
+  console.log('[Socket.io] Connecting to:', serverUrl);
+  
+  socket = io(serverUrl, {
+    auth: { token: authToken },
+    transports: ['websocket', 'polling']
+  });
+
+  socket.on('connect', () => {
+    console.log('[Socket.io] Connected:', socket.id);
+    socket.emit('user_online', currentUser.uid);
+  });
+
+  socket.on('disconnect', () => {
+    console.log('[Socket.io] Disconnected');
+  });
+
+  // Real-time new message notification
+  socket.on('new_message', (data) => {
+    console.log('[Socket.io] New message received:', data);
+    
+    // Show red dot on message icon
+    unreadMessageCount++;
+    updateMessageBadge();
+    
+    // If user is on messages page but not in that conversation, show badge
+    if (state.currentPage === 'messagesPage' && data.conversationId !== activeConversationId) {
+      toast(`New message from ${data.senderName || 'Someone'}`, 'info');
+    }
+    
+    // If user is NOT on messages page at all, definitely show indicator
+    if (state.currentPage !== 'messagesPage') {
+      toast(`💬 New message from ${data.senderName || 'Someone'}`, 'info');
+    }
+  });
+
+  // Real-time notification
+  socket.on('new_notification', (notification) => {
+    console.log('[Socket.io] New notification:', notification);
+    updateNotificationBadges();
+    toast(notification.title || 'New notification', 'info');
+  });
+
+  // Join conversation room when user opens a chat
+  socket.on('conversation_joined', (conversationId) => {
+    console.log('[Socket.io] Joined conversation:', conversationId);
+  });
+}
+
+function updateMessageBadge() {
+  const badge = $('msgBadge');
+  if (!badge) return;
+  
+  if (unreadMessageCount > 0) {
+    badge.textContent = unreadMessageCount > 99 ? '99+' : unreadMessageCount;
+    badge.classList.remove('hidden');
+    badge.classList.add('badge-pulse');
+  } else {
+    badge.classList.add('hidden');
+    badge.classList.remove('badge-pulse');
+  }
+}
+
+function disconnectSocket() {
+  if (socket) {
+    socket.disconnect();
+    socket = null;
+  }
+  unreadMessageCount = 0;
+}
+
 function normalizeUser(user) {
   if (!user) return null;
   return {
@@ -292,6 +372,7 @@ async function initAuth() {
     setHeader();
     switchPage("casePage");
     updateNotificationBadges();
+    initializeSocket(); // Initialize real-time connection
   } catch {
     handleUnauthorized();
   } finally {
@@ -402,11 +483,76 @@ async function login() {
     setHeader();
     switchPage("casePage");
     updateNotificationBadges();
+    initializeSocket(); // Initialize socket connection
     toast("Logged in successfully.", "success");
   } catch (error) {
     toast(error.message, "error");
   } finally {
     setButtonLoading(button, false, "Logging in...", "Login");
+  }
+}
+
+// Decode JWT payload (for Google credential)
+function decodeJWT(token) {
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return null;
+    const decoded = JSON.parse(atob(parts[1]));
+    return decoded;
+  } catch (error) {
+    console.error('JWT decode error:', error);
+    return null;
+  }
+}
+
+// Google Sign-In Implementation
+function googleSignIn() {
+  if (typeof google === 'undefined' || !window.GOOGLE_CLIENT_ID) {
+    toast("Google Sign-In is not available. Please refresh the page.", "error");
+    return;
+  }
+
+  google.accounts.id.initialize({
+    client_id: window.GOOGLE_CLIENT_ID,
+    callback: handleGoogleCallback
+  });
+
+  google.accounts.id.prompt(); // Show One Tap dialog
+}
+
+async function handleGoogleCallback(response) {
+  try {
+    console.log('[Google Sign-In] Received credential');
+    
+    // Decode JWT to extract user info
+    const payload = decodeJWT(response.credential);
+    if (!payload) {
+      throw new Error("Invalid Google token");
+    }
+
+    const googleAuthData = {
+      googleId: payload.sub || payload.jti,
+      email: payload.email,
+      name: payload.name,
+      photoURL: payload.picture || ''
+    };
+
+    console.log('[Google Sign-In] Extracted data:', { email: googleAuthData.email, name: googleAuthData.name });
+    
+    const data = await API.post("/auth/google", googleAuthData);
+    
+    authToken = data.token;
+    localStorage.setItem("authToken", authToken);
+    currentUser = { uid: data.user._id, email: data.user.email };
+    currentUserData = normalizeUser(data.user);
+    setHeader();
+    switchPage("casePage");
+    updateNotificationBadges();
+    initializeSocket();
+    toast(`Welcome, ${data.user.name}!`, "success");
+  } catch (error) {
+    console.error('[Google Sign-In] Error:', error);
+    toast(error.message || "Google Sign-In failed", "error");
   }
 }
 
@@ -420,6 +566,7 @@ async function forgotPassword() {
 }
 
 function logout() {
+  disconnectSocket(); // Disconnect socket before logout
   authToken = null;
   currentUser = null;
   currentUserData = null;
@@ -547,9 +694,14 @@ async function searchMatches() {
 
     results.innerHTML = listings
       .map(
-        (listing) => `
+        (listing) => {
+          // Safely extract user ID
+          const userId = listing.uid || (listing.creator && listing.creator._id) || listing.creator;
+          const safeUserId = typeof userId === 'object' ? (userId._id || userId.id) : userId;
+          
+          return `
         <div class="result-card">
-          <div class="result-avatar" onclick="openUserProfile('${listing.uid}')">${getInitials(listing.name)}</div>
+          <div class="result-avatar" onclick="openUserProfile('${safeUserId}')">${getInitials(listing.name)}</div>
           <div class="result-info">
             <h3>${listing.name}</h3>
             <p><strong>${listing.from}</strong> → <strong>${listing.to}</strong></p>
@@ -561,12 +713,13 @@ async function searchMatches() {
             ${listing.notes ? `<p class="extra-info">${listing.notes}</p>` : ""}
           </div>
           ${
-            currentUser && listing.uid !== currentUser.uid
-              ? `<button class="connect-btn" onclick="messageUserFromListing('${listing.uid}', '${listing.name.replace(/'/g, "\\'")}')">Message</button>`
+            currentUser && String(safeUserId) !== String(currentUser.uid)
+              ? `<button class="connect-btn" onclick="messageUserFromListing('${safeUserId}', '${listing.name.replace(/'/g, "\\'")}')">Message</button>`
               : `<span class="badge">Your trip</span>`
           }
         </div>
-      `,
+      `;
+        }
       )
       .join("");
   } catch (error) {
@@ -912,7 +1065,17 @@ async function messageUser() {
 }
 
 async function messageUserFromListing(userId, name) {
-  await openChatWith(userId, name);
+  console.log('[messageUserFromListing] Raw userId:', userId, 'type:', typeof userId);
+  
+  // Extract actual ID if userId is an object
+  let actualUserId = userId;
+  if (typeof userId === 'object' && userId !== null) {
+    actualUserId = userId._id || userId.id || String(userId);
+  }
+  
+  console.log('[messageUserFromListing] Extracted userId:', actualUserId);
+  
+  await openChatWith(actualUserId, name);
 }
 
 async function openChatWith(otherUserId, fallbackName = "User") {

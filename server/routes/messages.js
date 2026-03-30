@@ -8,6 +8,13 @@ const validate = require('../middleware/validate');
 
 const router = express.Router();
 
+// Socket.io will be injected by server.js
+let io = null;
+router.setSocketIO = (socketIO) => {
+  io = socketIO;
+};
+
+
 // @route   GET /api/messages/conversations
 // @desc    Get all conversations for current user
 router.get('/conversations', auth, async (req, res) => {
@@ -101,6 +108,23 @@ router.post('/', auth, [
     await conversation.save();
 
     console.log('[POST /messages] Message sent successfully');
+
+    // Emit real-time notification via Socket.io
+    if (io) {
+      const sender = await User.findById(req.userId).select('name photoURL');
+      const recipient = conversation.participants.find(p => p.toString() !== req.userId.toString());
+      
+      io.emit('new_message', {
+        conversationId: conversation._id,
+        senderId: req.userId,
+        senderName: sender?.name,
+        senderPhoto: sender?.photoURL,
+        content: content.substring(0, 50),
+        recipientId: recipient
+      });
+      
+      console.log('[POST /messages] Socket event emitted to recipient:', recipient);
+    }
 
     res.status(201).json({ message });
   } catch (error) {

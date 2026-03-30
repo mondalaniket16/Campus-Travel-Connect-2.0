@@ -80,7 +80,11 @@ app.use('/api/users', userRoutes);
 app.use('/api/groups', groupRoutes);
 app.use('/api/listings', listingRoutes);
 app.use('/api/join-requests', joinRequestRoutes);
+
+// Inject Socket.io into message routes
+messageRoutes.setSocketIO(io);
 app.use('/api/messages', messageRoutes);
+
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/ratings', ratingRoutes);
 
