@@ -1,5 +1,5 @@
 const express = require('express');
-const { body, param } = require('express-validator');
+const { body } = require('express-validator');
 const Rating = require('../models/Rating');
 const Report = require('../models/Report');
 const User = require('../models/User');
@@ -62,6 +62,38 @@ router.post('/by-email', auth, [
     res.status(201).json({ rating: newRating, message: 'Rating submitted' });
   } catch (error) {
     res.status(500).json({ error: 'Failed to submit rating' });
+  }
+});
+
+// @route   POST /api/ratings/report
+// @desc    Report a member
+router.post('/report', auth, [
+  body('toUser').isMongoId(),
+  body('reason').trim().notEmpty().isLength({ max: 200 }),
+  body('description').trim().notEmpty().isLength({ max: 1000 }),
+], async (req, res) => {
+  try {
+    const { toUser, reason, description } = req.body;
+
+    if (toUser === req.userId.toString()) {
+      return res.status(400).json({ error: 'Cannot report yourself' });
+    }
+
+    const user = await User.findById(toUser);
+    if (!user) {
+      return res.status(404).json({ error: 'Reported user not found' });
+    }
+
+    const report = await Report.create({
+      fromUser: req.userId,
+      toUser,
+      reason,
+      description
+    });
+
+    res.status(201).json({ report, message: 'Report submitted' });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to submit report' });
   }
 });
 

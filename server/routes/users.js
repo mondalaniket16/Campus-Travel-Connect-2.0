@@ -44,6 +44,26 @@ router.put('/me', auth, [
   }
 });
 
+// @route   GET /api/users/search/email
+// @desc    Search user by email
+router.get('/search/email', auth, async (req, res) => {
+  try {
+    const { email } = req.query;
+    if (!email) {
+      return res.status(400).json({ error: 'Email required' });
+    }
+
+    const user = await User.findOne({ email: email.toLowerCase() }).select('name reg photoURL email');
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    res.json({ user });
+  } catch (error) {
+    res.status(500).json({ error: 'Search failed' });
+  }
+});
+
 // @route   GET /api/users/:id
 // @desc    Get user profile by ID
 router.get('/:id', [
@@ -115,24 +135,5 @@ router.post('/:id/photo', auth, upload.single('photo'), async (req, res) => {
   }
 });
 
-// @route   GET /api/users/search/email
-// @desc    Search user by email
-router.get('/search/email', auth, async (req, res) => {
-  try {
-    const { email } = req.query;
-    if (!email) {
-      return res.status(400).json({ error: 'Email required' });
-    }
-
-    const user = await User.findOne({ email: email.toLowerCase() }).select('name reg photoURL');
-    if (!user) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-
-    res.json({ user });
-  } catch (error) {
-    res.status(500).json({ error: 'Search failed' });
-  }
-});
 
 module.exports = router;

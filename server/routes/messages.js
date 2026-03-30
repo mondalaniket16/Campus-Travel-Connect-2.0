@@ -29,7 +29,20 @@ router.get('/conversations', auth, async (req, res) => {
 router.get('/conversation/:conversationId', auth, async (req, res) => {
   try {
     const { conversationId } = req.params;
-    
+    const conversation = await Conversation.findById(conversationId);
+
+    if (!conversation) {
+      return res.json({ messages: [] });
+    }
+
+    const isParticipant = conversation.participants.some(
+      (participant) => participant.toString() === req.userId.toString()
+    );
+
+    if (!isParticipant) {
+      return res.status(403).json({ error: 'Not authorized for this conversation' });
+    }
+
     const messages = await Message.find({ conversationId })
       .sort({ createdAt: 1 })
       .limit(100);
@@ -48,8 +61,20 @@ router.post('/', auth, [
 ], validate, async (req, res) => {
   try {
     const { conversationId, content } = req.body;
+    const conversation = await Conversation.findById(conversationId);
 
-    // Create message
+    if (!conversation) {
+      return res.status(404).json({ error: 'Conversation not found' });
+    }
+
+    const isParticipant = conversation.participants.some(
+      (participant) => participant.toString() === req.userId.toString()
+    );
+
+    if (!isParticipant) {
+      return res.status(403).json({ error: 'Not authorized for this conversation' });
+    }
+
     const message = new Message({
       conversationId,
       senderId: req.userId,
@@ -58,15 +83,9 @@ router.post('/', auth, [
 
     await message.save();
 
-    // Update conversation
-    await Conversation.findOneAndUpdate(
-      { _id: conversationId },
-      { 
-        lastMessage: content.substring(0, 50),
-        lastMessageTime: new Date()
-      },
-      { upsert: true }
-    );
+    conversation.lastMessage = content.substring(0, 50);
+    conversation.lastMessageTime = new Date();
+    await conversation.save();
 
     res.status(201).json({ message });
   } catch (error) {

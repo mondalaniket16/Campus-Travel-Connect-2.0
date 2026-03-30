@@ -1,20 +1,39 @@
 // ════════════════════════════════════════════════════════════════════════════
 //  Campus Travel Connect — Main Script
-//  Backend: Node.js + Express + MongoDB (No Firebase)
 // ════════════════════════════════════════════════════════════════════════════
 
-// ── API CONFIGURATION ──────────────────────────────────────────────────────────
 const API_URL =
-  window.API_URL ||
-  "https://campus-travel-connect-2-0.onrender.com/api"; // Override with window.API_URL in production if needed
-let authToken = localStorage.getItem("authToken") || null;
+  window.API_URL || "https://campus-travel-connect-2-0.onrender.com/api";
 
-// API Helper Functions
+let authToken = localStorage.getItem("authToken") || null;
+let currentUser = null;
+let currentUserData = null;
+let viewingUserId = null;
+let viewingUserData = null;
+let activeConversationId = null;
+let activeConversationUser = null;
+let issueScreenshotFile = null;
+
+const state = {
+  currentPage: "authPage",
+  matchMode: "find",
+  experienceTab: "journey",
+  memberActionTab: "rate",
+  ratings: {
+    journey: 0,
+    member: 0,
+  },
+};
+
+const pageHistory = ["authPage"];
+
 const API = {
   async request(endpoint, options = {}) {
     const headers = {
-      "Content-Type": "application/json",
-      ...(authToken && { Authorization: `Bearer ${authToken}` }),
+      ...(options.body instanceof FormData
+        ? {}
+        : { "Content-Type": "application/json" }),
+      ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
       ...options.headers,
     };
 
@@ -24,91 +43,78 @@ const API = {
         headers,
       });
 
-      const data = await response.json();
+      const raw = await response.text();
+      let data = {};
+
+      if (raw) {
+        try {
+          data = JSON.parse(raw);
+        } catch {
+          data = { message: raw };
+        }
+      }
 
       if (!response.ok) {
-        throw new Error(data.message || data.error || "Request failed");
+        if (response.status === 401) {
+          handleUnauthorized();
+        }
+
+        throw new Error(
+          data.error ||
+            data.message ||
+            `Request failed with status ${response.status}`,
+        );
       }
 
       return data;
     } catch (error) {
-      console.error(`API Error [${endpoint}]:`, error);
+      if (
+        error instanceof TypeError ||
+        /failed to fetch/i.test(error.message) ||
+        /network/i.test(error.message)
+      ) {
+        throw new Error(
+          "Unable to connect to the server. Please try again in a moment.",
+        );
+      }
       throw error;
     }
   },
 
-  get: (endpoint) => API.request(endpoint, { method: "GET" }),
-  post: (endpoint, body) =>
-    API.request(endpoint, { method: "POST", body: JSON.stringify(body) }),
-  put: (endpoint, body) =>
-    API.request(endpoint, { method: "PUT", body: JSON.stringify(body) }),
-  delete: (endpoint) => API.request(endpoint, { method: "DELETE" }),
+  get(endpoint) {
+    return API.request(endpoint, { method: "GET" });
+  },
 
-  // File upload helper
-  async upload(endpoint, formData) {
-    const headers = authToken ? { Authorization: `Bearer ${authToken}` } : {};
-    const response = await fetch(`${API_URL}${endpoint}`, {
+  post(endpoint, body) {
+    return API.request(endpoint, {
       method: "POST",
-      headers,
-      body: formData,
+      body: body instanceof FormData ? body : JSON.stringify(body),
     });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error || "Upload failed");
-    return data;
+  },
+
+  put(endpoint, body) {
+    return API.request(endpoint, {
+      method: "PUT",
+      body: body instanceof FormData ? body : JSON.stringify(body),
+    });
+  },
+
+  delete(endpoint) {
+    return API.request(endpoint, { method: "DELETE" });
   },
 };
 
-// ── STATE ────────────────────────────────────────────────────────────────────
-let currentUser = null;
-let currentUserData = null;
-let viewingUserId = null;
-let activeChatId = null;
-
-// ── INIT — Check Auth on Page Load ───────────────────────────────────────────
-async function initAuth() {
-  const token = localStorage.getItem("authToken");
-  if (token) {
-    authToken = token;
-    try {
-      const data = await API.get("/auth/me");
-      currentUser = { uid: data.user._id, email: data.user.email };
-      currentUserData = data.user;
-      setHeader();
-      switchPage("casePage");
-    } catch (e) {
-      localStorage.removeItem("authToken");
-      authToken = null;
-      switchPage("authPage");
-    }
-  } else {
-    switchPage("authPage");
-  }
-  document.getElementById("loadingScreen").classList.add("hidden");
+function $(id) {
+  return document.getElementById(id);
 }
 
-// Initialize on page load
-initAuth();
-
-// ── UTILITIES ─────────────────────────────────────────────────────────────────
-function toast(msg, type = "info") {
-  const t = document.getElementById("toast");
-  t.textContent = msg;
-  t.className = "toast show " + type;
-  clearTimeout(t._timer);
-  t._timer = setTimeout(() => t.classList.remove("show"), 3500);
-}
-
-function switchPage(id) {
-  document
-    .querySelectorAll(".page")
-    .forEach((p) => p.classList.remove("active"));
-  document.getElementById(id).classList.add("active");
-  const greeting = document.getElementById("userGreeting");
-  if (greeting) {
-    if (id === "casePage") greeting.classList.add("home-page");
-    else greeting.classList.remove("home-page");
-  }
-  window.scrollTo({ top: 0, behavior: "smooth" });
+function toast(message, type = "info") {
+  const el = $("toast");
+  if (!el) return;
+  el.textContent = message;
+  el.className = `toast show ${type}`;
+  clearTimeout(el._timer);
+  el._timer = setTimeout(() => el.classList.remove("show"), 3200);
 }
 
 function getInitials(name = "") {
@@ -116,65 +122,17 @@ function getInitials(name = "") {
     name
       .split(" ")
       .filter(Boolean)
-      .map((w) => w[0])
+      .map((part) => part[0])
       .join("")
       .slice(0, 2)
       .toUpperCase() || "?"
   );
 }
 
-function setHeader() {
-  const bar = document.getElementById("userBar");
-  if (currentUser && currentUserData) {
-    const greetings = ["Hey", "Hello", "Hola", "Hi"];
-    const g = greetings[Math.floor(Math.random() * greetings.length)];
-    let n = (currentUserData.name || "").split(" ")[0];
-    if (!n || n.toLowerCase() === "new")
-      n = currentUser.email.split("@")[0].split(".")[0];
-    document.getElementById("userGreeting").textContent = `👋 ${g} ${n}!!!`;
-    bar.classList.remove("hidden");
-    const sideAvatar = document.getElementById("sidebarUserAvatar");
-    if (sideAvatar) {
-      sideAvatar.textContent = getInitials(currentUserData.name);
-      sideAvatar.style.backgroundImage = currentUserData.photoURL
-        ? `url(${currentUserData.photoURL})`
-        : "";
-      sideAvatar.style.fontSize = currentUserData.photoURL ? "0" : "";
-      document.getElementById("sidebarUserName").textContent =
-        currentUserData.name || "User";
-      document.getElementById("sidebarUserEmail").textContent =
-        currentUser.email || "";
-    }
-    updateNotificationBadges();
-  } else {
-    bar.classList.add("hidden");
-  }
-}
-
-async function updateNotificationBadges() {
-  if (!currentUser) return;
-  try {
-    const data = await API.get("/join-requests/received");
-    const pending = (data.requests || []).filter((r) => r.status === "pending");
-    const notifBadge = document.getElementById("notifBadge");
-    if (notifBadge) {
-      if (pending.length > 0) {
-        notifBadge.textContent = pending.length;
-        notifBadge.classList.remove("hidden");
-      } else {
-        notifBadge.classList.add("hidden");
-      }
-    }
-  } catch (e) {
-    console.log("Could not update badges:", e);
-  }
-}
-
-function setAvatar(el, name, photoURL) {
+function setAvatar(el, name = "", photoURL = "") {
+  if (!el) return;
   if (photoURL) {
-    el.style.backgroundImage = `url(${photoURL})`;
-    el.style.backgroundSize = "cover";
-    el.style.backgroundPosition = "center";
+    el.style.backgroundImage = `url(${photoURL.startsWith("http") ? photoURL : `${API_URL.replace("/api", "")}${photoURL}`})`;
     el.textContent = "";
     el.style.fontSize = "0";
   } else {
@@ -184,1067 +142,627 @@ function setAvatar(el, name, photoURL) {
   }
 }
 
-// ── SIDEBAR ───────────────────────────────────────────────────────────────────
-function openSidebar() {
-  document.getElementById("sidebar").classList.add("open");
-  document.getElementById("sidebarBackdrop").classList.remove("hidden");
+function renderEmptyState(container, message, icon = "✨") {
+  if (!container) return;
+  container.innerHTML = `
+    <div class="empty-state">
+      <span>${icon}</span>
+      <p>${message}</p>
+    </div>
+  `;
 }
+
+function showInlineLoading(container, message = "Loading...") {
+  if (!container) return;
+  container.innerHTML = `<div class="chat-loading">${message}</div>`;
+}
+
+function normalizeUser(user) {
+  if (!user) return null;
+  return {
+    id: user._id || user.id,
+    name: user.name || "User",
+    email: user.email || "",
+    reg: user.reg || "",
+    dept: user.dept || "",
+    phone: user.phone || "",
+    bio: user.bio || "",
+    photoURL: user.photoURL || "",
+    extraEmail: user.extraEmail || "",
+    extraPhone: user.extraPhone || "",
+  };
+}
+
+function normalizeListing(listing = {}) {
+  const creator = listing.creator || {};
+  return {
+    ...listing,
+    id: listing._id,
+    uid: String(listing.uid || creator._id || ""),
+    name: listing.name || creator.name || "Anonymous",
+    photoURL: listing.photoURL || creator.photoURL || "",
+    from: listing.from || "VIT Chennai",
+    to: listing.to || "Unknown",
+    date: listing.date || "",
+    time: listing.time || "",
+    vehicle: listing.vehicle || "Anything",
+    gender: listing.gender || "No Preference",
+    notes: listing.notes || "",
+    maxMembers: listing.maxMembers || 4,
+    members: Array.isArray(listing.members) ? listing.members : [],
+    isActive: listing.isActive !== false,
+  };
+}
+
+function setButtonLoading(button, loading, loadingText, defaultText) {
+  if (!button) return;
+  button.disabled = loading;
+  button.textContent = loading ? loadingText : defaultText;
+}
+
 function closeSidebar() {
-  document.getElementById("sidebar").classList.remove("open");
-  document.getElementById("sidebarBackdrop").classList.add("hidden");
+  $("sidebar")?.classList.remove("open");
+  $("sidebarBackdrop")?.classList.add("hidden");
 }
-function sidebarNav(fn) {
-  closeSidebar();
-  setTimeout(fn, 200);
+
+function openSidebar() {
+  $("sidebar")?.classList.add("open");
+  $("sidebarBackdrop")?.classList.remove("hidden");
 }
-function goHome() {
-  sidebarNav(() => switchPage("casePage"));
-}
-function goDashboard() {
-  sidebarNav(() => {
-    loadDashboard();
-    switchPage("dashboardPage");
+
+function switchPage(pageId, options = {}) {
+  document.querySelectorAll(".page").forEach((page) => {
+    page.classList.toggle("active", page.id === pageId);
   });
-}
-function goMyProfile() {
-  sidebarNav(() => {
-    loadMyProfile();
-    switchPage("profilePage");
-  });
-}
-function goMessages() {
-  sidebarNav(() => {
-    loadChatList();
-    switchPage("chatListPage");
-  });
-}
-function goFindMatch() {
-  sidebarNav(() => openMatchPage());
-}
-function goGroupFinder() {
-  sidebarNav(() => openRoutePage());
-}
-function goExperience() {
-  sidebarNav(async () => {
-    resetExperiencePage();
-    switchPage("experiencePage");
-    const sel = document.getElementById("journeySelect");
-    if (!sel || !currentUser) return;
-    sel.innerHTML = '<option value="">Loading journeys...</option>';
-    try {
-      const data = await API.get("/listings/my-journeys");
-      const listings = data.listings || [];
-      if (listings.length === 0) {
-        sel.innerHTML = '<option value="">No past journeys found</option>';
-      } else {
-        sel.innerHTML = '<option value="">Select a journey to rate...</option>';
-        listings.forEach((d) => {
-          const dest =
-            d.type === "match"
-              ? `[Trip] ${d.to}`
-              : `[Group] ${d.from} ➔ ${d.to}`;
-          const opt = document.createElement("option");
-          opt.value = d._id;
-          opt.textContent = `${d.date || "N/A"} | ${dest}`;
-          sel.appendChild(opt);
-        });
-      }
-    } catch (e) {
-      sel.innerHTML = '<option value="">Failed to load journeys</option>';
+
+  if (!options.skipHistory) {
+    if (pageHistory[pageHistory.length - 1] !== pageId) {
+      pageHistory.push(pageId);
     }
-  });
-}
-function goSettings() {
-  sidebarNav(() => {
-    loadSettingsPage();
-    switchPage("settingsPage");
-  });
-}
-function goReportIssue() {
-  sidebarNav(() => switchPage("reportIssuePage"));
+  }
+
+  state.currentPage = pageId;
+  closeSidebar();
+
+  const greeting = $("userGreeting");
+  if (greeting) {
+    greeting.classList.toggle("home-page", pageId === "casePage");
+  }
+
+  window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
-// ── AUTH FORMS ────────────────────────────────────────────────────────────────
+function goBack(fallback = "casePage") {
+  if (pageHistory.length > 1) {
+    pageHistory.pop();
+    switchPage(pageHistory[pageHistory.length - 1], { skipHistory: true });
+    return;
+  }
+  switchPage(fallback);
+}
+
+function backToCases() {
+  switchPage("casePage");
+}
+
+function handleUnauthorized() {
+  authToken = null;
+  currentUser = null;
+  currentUserData = null;
+  localStorage.removeItem("authToken");
+  setHeader();
+  switchPage("authPage");
+}
+
+function setHeader() {
+  const userBar = $("userBar");
+  if (!currentUser || !currentUserData) {
+    userBar?.classList.add("hidden");
+    return;
+  }
+
+  userBar?.classList.remove("hidden");
+
+  const firstName =
+    currentUserData.name?.split(" ")[0] ||
+    currentUser.email?.split("@")[0] ||
+    "Traveller";
+  $("userGreeting").textContent = `👋 Hi ${firstName}`;
+  $("sidebarUserName").textContent = currentUserData.name || "User";
+  $("sidebarUserEmail").textContent = currentUser.email || "";
+  setAvatar($("sidebarUserAvatar"), currentUserData.name, currentUserData.photoURL);
+}
+
+async function initAuth() {
+  try {
+    if (!authToken) {
+      switchPage("authPage");
+      return;
+    }
+
+    const data = await API.get("/auth/me");
+    currentUser = {
+      uid: data.user._id,
+      email: data.user.email,
+    };
+    currentUserData = normalizeUser(data.user);
+    setHeader();
+    switchPage("casePage");
+    updateNotificationBadges();
+  } catch {
+    handleUnauthorized();
+  } finally {
+    $("loadingScreen")?.classList.add("hidden");
+  }
+}
+
 function showLogin() {
-  ["loginForm", "signupForm", "forgotPwForm"].forEach((id) =>
-    document.getElementById(id).classList.add("hidden"),
-  );
-  document.getElementById("loginForm").classList.remove("hidden");
-  document.getElementById("loginTab").classList.add("active");
-  document.getElementById("signupTab").classList.remove("active");
+  $("loginForm")?.classList.remove("hidden");
+  $("signupForm")?.classList.add("hidden");
+  $("forgotPwForm")?.classList.add("hidden");
+  $("loginTab")?.classList.add("active");
+  $("signupTab")?.classList.remove("active");
 }
+
 function showSignup() {
-  ["loginForm", "signupForm", "forgotPwForm"].forEach((id) =>
-    document.getElementById(id).classList.add("hidden"),
-  );
-  document.getElementById("signupForm").classList.remove("hidden");
-  document.getElementById("signupTab").classList.add("active");
-  document.getElementById("loginTab").classList.remove("active");
+  $("signupForm")?.classList.remove("hidden");
+  $("loginForm")?.classList.add("hidden");
+  $("forgotPwForm")?.classList.add("hidden");
+  $("signupTab")?.classList.add("active");
+  $("loginTab")?.classList.remove("active");
 }
+
 function showForgotPw() {
-  ["loginForm", "signupForm", "forgotPwForm"].forEach((id) =>
-    document.getElementById(id).classList.add("hidden"),
-  );
-  document.getElementById("forgotPwForm").classList.remove("hidden");
-  ["loginTab", "signupTab"].forEach((id) =>
-    document.getElementById(id).classList.remove("active"),
-  );
+  $("forgotPwForm")?.classList.remove("hidden");
+  $("loginForm")?.classList.add("hidden");
+  $("signupForm")?.classList.add("hidden");
+  $("signupTab")?.classList.remove("active");
+  $("loginTab")?.classList.remove("active");
 }
 
-// ── AUTH ACTIONS ──────────────────────────────────────────────────────────────
 async function signup() {
-  const name = document.getElementById("signupName").value.trim();
-  const reg = document.getElementById("signupReg").value.trim();
-  const phone = document.getElementById("signupPhone").value.trim();
-  const email = document.getElementById("signupEmail").value.trim();
-  const pw = document.getElementById("signupPassword").value;
-  const cpw = document.getElementById("signupConfirmPassword").value;
+  const name = $("signupName").value.trim();
+  const reg = $("signupReg").value.trim();
+  const phone = $("signupPhone").value.trim();
+  const email = $("signupEmail").value.trim().toLowerCase();
+  const password = $("signupPassword").value;
+  const confirmPassword = $("signupConfirmPassword").value;
 
-  const ids = [
-    "signupName",
-    "signupReg",
-    "signupPhone",
-    "signupEmail",
-    "signupPassword",
-    "signupConfirmPassword",
-  ];
-  let ok = true;
-  ids.forEach((id) => {
-    const e = document.getElementById(id);
-    const empty = !e.value.trim();
-    e.classList.toggle("field-error", empty);
-    if (empty) ok = false;
-  });
-  if (!ok) {
-    toast("Fill in all fields.", "error");
+  if (!name || !reg || !phone || !email || !password || !confirmPassword) {
+    toast("Fill all sign up fields.", "error");
     return;
   }
+
   if (!email.endsWith("@vitstudent.ac.in")) {
-    toast("Use your VIT email only.", "error");
+    toast("Use your VIT student email only.", "error");
     return;
   }
+
   if (!/^\d{10}$/.test(phone)) {
-    toast("Enter valid 10-digit phone.", "error");
+    toast("Enter a valid 10-digit phone number.", "error");
     return;
   }
-  if (pw !== cpw) {
+
+  if (password.length < 6) {
+    toast("Password must be at least 6 characters.", "error");
+    return;
+  }
+
+  if (password !== confirmPassword) {
     toast("Passwords do not match.", "error");
     return;
   }
-  if (pw.length < 6) {
-    toast("Password needs 6+ characters.", "error");
-    return;
-  }
 
-  const btn = document.getElementById("signupBtn");
-  btn.textContent = "Creating...";
-  btn.disabled = true;
+  const button = $("signupBtn");
+  setButtonLoading(button, true, "Creating...", "Create Account");
 
   try {
     const data = await API.post("/auth/signup", {
       name,
-      email,
-      password: pw,
       reg,
       phone,
+      email,
+      password,
     });
+
     authToken = data.token;
     localStorage.setItem("authToken", authToken);
     currentUser = { uid: data.user._id, email: data.user.email };
-    currentUserData = data.user;
+    currentUserData = normalizeUser(data.user);
     setHeader();
     switchPage("casePage");
-    toast(`Welcome, ${name.split(" ")[0]}! 🚀`, "success");
-  } catch (e) {
-    let msg = e.message;
-    if (msg.includes("already exists"))
-      msg = "Account already exists. Please login.";
-    toast(msg, "error");
+    toast("Account created successfully.", "success");
+  } catch (error) {
+    toast(error.message, "error");
   } finally {
-    btn.textContent = "Create Account";
-    btn.disabled = false;
+    setButtonLoading(button, false, "Creating...", "Create Account");
   }
 }
 
 async function login() {
-  const email = document.getElementById("loginEmail").value.trim();
-  const pw = document.getElementById("loginPassword").value;
-  ["loginEmail", "loginPassword"].forEach((id) =>
-    document
-      .getElementById(id)
-      .classList.toggle(
-        "field-error",
-        !document.getElementById(id).value.trim(),
-      ),
-  );
-  if (!email || !pw) {
+  const email = $("loginEmail").value.trim().toLowerCase();
+  const password = $("loginPassword").value;
+  if (!email || !password) {
     toast("Enter email and password.", "error");
     return;
   }
 
-  const btn = document.getElementById("loginBtn");
-  btn.textContent = "Logging in...";
-  btn.disabled = true;
+  const button = $("loginBtn");
+  setButtonLoading(button, true, "Logging in...", "Login");
 
   try {
-    const data = await API.post("/auth/login", { email, password: pw });
+    const data = await API.post("/auth/login", { email, password });
     authToken = data.token;
     localStorage.setItem("authToken", authToken);
     currentUser = { uid: data.user._id, email: data.user.email };
-    currentUserData = data.user;
+    currentUserData = normalizeUser(data.user);
     setHeader();
     switchPage("casePage");
-    toast(
-      `Welcome back, ${(data.user.name || "traveller").split(" ")[0]}! 🚀`,
-      "success",
-    );
-  } catch (e) {
-    let msg = "Login failed. Check credentials.";
-    if (e.message.includes("not found"))
-      msg = "No account found. Sign up first.";
-    if (e.message.includes("Invalid")) msg = "Incorrect password.";
-    toast(msg, "error");
+    updateNotificationBadges();
+    toast("Logged in successfully.", "success");
+  } catch (error) {
+    toast(error.message, "error");
   } finally {
-    btn.textContent = "Login";
-    btn.disabled = false;
-  }
-}
-
-async function googleSignIn() {
-  try {
-    // Check if Google Sign-In SDK is loaded
-    if (typeof google === "undefined" || !window.GOOGLE_CLIENT_ID) {
-      toast(
-        "Google Sign-In not configured. Check console for setup guide.",
-        "error",
-      );
-      console.error("❌ Google Sign-In Setup Required:");
-      console.log("1. Get Client ID from: https://console.cloud.google.com/");
-      console.log(
-        "2. Add to index.html: <script>window.GOOGLE_CLIENT_ID = 'YOUR_ID';</script>",
-      );
-      console.log("3. See GOOGLE-OAUTH-SETUP.md for detailed guide");
-      return;
-    }
-
-    // Initialize Google Sign-In with popup
-    google.accounts.id.initialize({
-      client_id: window.GOOGLE_CLIENT_ID,
-      callback: handleGoogleCallback,
-      auto_select: false,
-      cancel_on_tap_outside: true,
-    });
-
-    // Create a temporary container for the Google button
-    const container = document.createElement("div");
-    container.style.position = "fixed";
-    container.style.top = "-9999px";
-    container.style.left = "-9999px";
-    document.body.appendChild(container);
-
-    // Render the button and trigger click
-    google.accounts.id.renderButton(container, {
-      theme: "outline",
-      size: "large",
-      type: "standard",
-      text: "signin_with",
-    });
-
-    // Trigger the button click after a short delay
-    setTimeout(() => {
-      const googleBtn = container.querySelector('[role="button"]');
-      if (googleBtn) {
-        googleBtn.click();
-      } else {
-        // Fallback: show One Tap
-        google.accounts.id.prompt();
-      }
-      // Clean up the container after use
-      setTimeout(() => document.body.removeChild(container), 500);
-    }, 100);
-  } catch (error) {
-    console.error("Google Sign-In Error:", error);
-    toast("Google Sign-In failed. Try email login.", "error");
-  }
-}
-
-async function handleGoogleCallback(response) {
-  try {
-    // Decode JWT token from Google
-    const base64Url = response.credential.split(".")[1];
-    const base64 = base64Url.replace(/-/g, "+").replace(/_/g, "/");
-    const jsonPayload = decodeURIComponent(
-      atob(base64)
-        .split("")
-        .map((c) => {
-          return "%" + ("00" + c.charCodeAt(0).toString(16)).slice(-2);
-        })
-        .join(""),
-    );
-
-    const googleUser = JSON.parse(jsonPayload);
-
-    // Send to backend
-    const data = await API.post("/auth/google", {
-      googleId: googleUser.sub,
-      email: googleUser.email,
-      name: googleUser.name,
-      photoURL: googleUser.picture,
-    });
-
-    // Store token and user data
-    authToken = data.token;
-    localStorage.setItem("authToken", authToken);
-    currentUser = { uid: data.user._id, email: data.user.email };
-    currentUserData = data.user;
-
-    // Update UI
-    setHeader();
-    switchPage("casePage");
-    toast(
-      `Welcome, ${googleUser.given_name || data.user.name.split(" ")[0]}! 🎉`,
-      "success",
-    );
-  } catch (error) {
-    console.error("Google Auth Error:", error);
-    let msg = error.message;
-    if (msg.includes("VIT") || msg.includes("student")) {
-      msg = "Only VIT students can sign in with Google.";
-    }
-    toast(msg || "Google Sign-In failed", "error");
+    setButtonLoading(button, false, "Logging in...", "Login");
   }
 }
 
 async function forgotPassword() {
-  const email = document.getElementById("forgotEmail").value.trim();
-  if (!email) {
+  if (!$("forgotEmail").value.trim()) {
     toast("Enter your email.", "error");
     return;
   }
-  const btn = document.getElementById("forgotBtn");
-  btn.textContent = "Sending...";
-  btn.disabled = true;
-  try {
-    toast("Password reset coming soon. Please contact support.", "info");
-    showLogin();
-  } catch (e) {
-    toast("Failed to send reset email.", "error");
-  } finally {
-    btn.textContent = "Send Reset Link";
-    btn.disabled = false;
-  }
+  toast("Password reset is not enabled yet. Please contact support.", "info");
+  showLogin();
 }
 
-async function logout() {
+function logout() {
   authToken = null;
-  localStorage.removeItem("authToken");
   currentUser = null;
   currentUserData = null;
+  localStorage.removeItem("authToken");
   setHeader();
   switchPage("authPage");
-  closeSidebar();
-  toast("Logged out. See you! 👋", "info");
+  toast("Logged out successfully.", "info");
 }
 
-// ── MY PROFILE ────────────────────────────────────────────────────────────────
-async function loadMyProfile() {
-  if (!currentUser) return;
-  try {
-    const data = await API.get("/auth/me");
-    currentUserData = data.user;
-    setHeader();
-    const d = currentUserData;
-    setAvatar(
-      document.getElementById("profileAvatar"),
-      d.name || "",
-      d.photoURL || "",
-    );
-    document.getElementById("profileName").value = d.name || "";
-    document.getElementById("profileReg").value = d.reg || "";
-    document.getElementById("profileDept").value = d.dept || "";
-    document.getElementById("profilePhone").value = d.phone || "";
-    document.getElementById("profileExtraEmail").value = d.extraEmail || "";
-    document.getElementById("profileExtraPhone").value = d.extraPhone || "";
-    document.getElementById("profileBio").value = d.bio || "";
-    document.getElementById("profileEmail").value = currentUser.email || "";
-  } catch (e) {
-    toast("Could not load profile.", "error");
-  }
+function goHome() {
+  backToCases();
 }
 
-async function saveProfile() {
-  if (!currentUser) return;
-  const name = document.getElementById("profileName").value.trim();
-  const phone = document.getElementById("profilePhone").value.trim();
-  const dept = document.getElementById("profileDept").value.trim();
-  const extraEmail = document.getElementById("profileExtraEmail").value.trim();
-  const extraPhone = document.getElementById("profileExtraPhone").value.trim();
-  const bio = document.getElementById("profileBio").value.trim();
-  if (!name) {
-    toast("Name cannot be empty.", "error");
-    return;
-  }
-  const btn = document.getElementById("saveProfileBtn");
-  btn.textContent = "Saving...";
-  btn.disabled = true;
-  try {
-    await API.put("/users/me", {
-      name,
-      phone,
-      dept,
-      extraEmail,
-      extraPhone,
-      bio,
-    });
-    currentUserData = {
-      ...currentUserData,
-      name,
-      phone,
-      dept,
-      extraEmail,
-      extraPhone,
-      bio,
-    };
-    setHeader();
-    toast("Profile updated! ✅", "success");
-  } catch (e) {
-    toast("Failed to save.", "error");
-  } finally {
-    btn.textContent = "Save Changes";
-    btn.disabled = false;
-  }
+async function goDashboard() {
+  switchPage("dashboardPage");
+  await loadDashboard();
 }
 
-async function uploadProfilePhoto() {
-  const input = document.createElement("input");
-  input.type = "file";
-  input.accept = "image/*";
-  input.onchange = async () => {
-    const file = input.files[0];
-    if (!file) return;
-    if (file.size > 5 * 1024 * 1024) {
-      toast("Image must be under 5MB.", "error");
-      return;
-    }
-    try {
-      const formData = new FormData();
-      formData.append("photo", file);
-      const data = await API.upload(
-        `/users/${currentUser.uid}/photo`,
-        formData,
-      );
-      currentUserData.photoURL = data.photoURL;
-      setAvatar(
-        document.getElementById("profileAvatar"),
-        currentUserData.name,
-        data.photoURL,
-      );
-      setHeader();
-      toast("Photo updated!", "success");
-    } catch (e) {
-      toast("Upload failed.", "error");
-    }
-  };
-  input.click();
+async function goMyProfile() {
+  switchPage("profilePage");
+  await loadMyProfile();
 }
 
-// ── VIEW USER PROFILE ─────────────────────────────────────────────────────────
-async function openUserProfile(uid) {
-  if (!uid) return;
-  viewingUserId = uid;
-  switchPage("userProfilePage");
-  try {
-    const data = await API.get(`/users/${uid}`);
-    const d = data.user;
-    setAvatar(
-      document.getElementById("viewUserAvatar"),
-      d.name || "",
-      d.photoURL || "",
-    );
-    document.getElementById("viewUserName").textContent = d.name || "—";
-    document.getElementById("viewUserReg").textContent = d.reg || "—";
-    document.getElementById("viewUserDept").textContent = d.dept || "—";
-    document.getElementById("viewUserBio").textContent = d.bio || "No bio";
-    document.getElementById("viewUserPhone").textContent = d.phone || "—";
-  } catch (e) {
-    toast("Failed to load user.", "error");
-  }
+async function goMessages() {
+  switchPage("chatListPage");
+  await loadChatList();
 }
 
-async function messageViewedUser() {
-  if (!viewingUserId) return;
-  try {
-    const data = await API.get(`/users/${viewingUserId}`);
-    openChatWith(viewingUserId, data.user.name || "User");
-  } catch (e) {
-    toast("Could not start chat.", "error");
-  }
+function goFindMatch() {
+  openMatchPage();
 }
 
-// ── TRAVEL MATCH BOARD ────────────────────────────────────────────────────────
+function goGroupFinder() {
+  openRoutePage();
+}
+
+function goExperience() {
+  switchPage("experiencePage");
+  showExpTab("journey");
+  loadJourneyOptions();
+}
+
+function goSettings() {
+  switchPage("settingsPage");
+  loadSettingsPage();
+}
+
+function goReportIssue() {
+  switchPage("reportIssuePage");
+}
+
 function openMatchPage() {
   switchPage("matchPage");
-  loadMatches();
+  showFindForm();
 }
 
-async function loadMatches() {
-  const list = document.getElementById("matchCardList");
-  if (!list) return;
-  list.innerHTML =
-    '<p style="text-align:center; color:#aaa;">Loading matches...</p>';
+function openRoutePage() {
+  switchPage("routePage");
+}
+
+function showFindForm() {
+  state.matchMode = "find";
+  $("findForm")?.classList.remove("hidden");
+  $("postForm")?.classList.add("hidden");
+  $("findTab")?.classList.add("active");
+  $("postTab")?.classList.remove("active");
+}
+
+function showPostForm() {
+  state.matchMode = "post";
+  $("postForm")?.classList.remove("hidden");
+  $("findForm")?.classList.add("hidden");
+  $("postTab")?.classList.add("active");
+  $("findTab")?.classList.remove("active");
+}
+
+function handleOtherInput(selectEl, inputId) {
+  const target = $(inputId);
+  if (!target || !selectEl) return;
+  const show = selectEl.value === "other";
+  target.classList.toggle("hidden", !show);
+  if (!show) target.value = "";
+}
+
+function getSelectedValue(selectId, otherInputId) {
+  const select = $(selectId);
+  const other = otherInputId ? $(otherInputId) : null;
+  if (!select) return "";
+  return select.value === "other" ? other?.value.trim() || "" : select.value.trim();
+}
+
+async function searchMatches() {
+  const destination = getSelectedValue("destinationSelect", "destinationOther");
+  const date = $("matchDate").value;
+  const transport = getSelectedValue("transportSelect", "transportOther");
+  const gender = $("genderSelect").value;
+  const button = $("searchMatchBtn");
+  const resultsSection = $("matchResultsSection");
+  const results = $("matchResults");
+
+  setButtonLoading(button, true, "Searching...", "🔍 Search");
+  resultsSection?.classList.remove("hidden");
+  showInlineLoading(results, "Finding travel matches...");
+
   try {
-    const data = await API.get("/listings?type=match");
-    const listings = data.listings || [];
-    if (listings.length === 0) {
-      list.innerHTML =
-        '<p style="text-align:center;color:#888;">No matches yet. Create one!</p>';
+    const query = new URLSearchParams({ type: "match" });
+    if (destination && !/select/i.test(destination)) {
+      query.append("destination", destination);
+    }
+    if (date) query.append("date", date);
+    if (transport && !/select/i.test(transport)) {
+      query.append("transport", transport);
+    }
+    if (gender && !/select/i.test(gender)) {
+      query.append("gender", gender);
+    }
+
+    const data = await API.get(`/listings?${query.toString()}`);
+    const listings = (data.listings || []).map(normalizeListing);
+
+    if (!listings.length) {
+      renderEmptyState(results, "No matches found for the selected trip.", "🚕");
       return;
     }
-    list.innerHTML = "";
-    listings.forEach((d) => {
-      const card = document.createElement("div");
-      card.className = "match-card";
-      card.innerHTML = `
-        <div class="match-card-head">
-          <div class="match-avatar" onclick="openUserProfile('${d.uid}')">${getInitials(d.name)}</div>
-          <div>
-            <div class="match-name">${d.name}</div>
-            <div class="match-route">${d.from} ➔ ${d.to}</div>
+
+    results.innerHTML = listings
+      .map(
+        (listing) => `
+        <div class="result-card">
+          <div class="result-avatar" onclick="openUserProfile('${listing.uid}')">${getInitials(listing.name)}</div>
+          <div class="result-info">
+            <h3>${listing.name}</h3>
+            <p><strong>${listing.from}</strong> → <strong>${listing.to}</strong></p>
+            <p>${listing.date || "Flexible date"} · ${listing.time || "Flexible time"} · ${listing.vehicle}</p>
+            <div class="group-meta">
+              <span class="badge">${listing.type === "match" ? "Match" : "Group"}</span>
+              <span class="badge gender-badge">${listing.gender}</span>
+            </div>
+            ${listing.notes ? `<p class="extra-info">${listing.notes}</p>` : ""}
           </div>
+          ${
+            currentUser && listing.uid !== currentUser.uid
+              ? `<button class="connect-btn" onclick="messageUserFromListing('${listing.uid}', '${listing.name.replace(/'/g, "\\'")}')">Message</button>`
+              : `<span class="badge">Your trip</span>`
+          }
         </div>
-        <div class="match-details">
-          <span>📅 ${d.date || "—"}</span>
-          <span>⏰ ${d.time || "—"}</span>
-          <span>🚗 ${d.vehicle || "—"}</span>
-          <span>👤 ${d.gender || "Any"}</span>
-        </div>
-        ${d.notes ? `<div class="match-notes">${d.notes}</div>` : ""}
-        <div class="match-actions">
-          ${d.uid === currentUser?.uid ? `<button class="btn-outline" onclick="deleteListing('${d._id}')">Delete</button>` : `<button onclick="openChatWith('${d.uid}', '${d.name}')">Message</button>`}
-        </div>
-      `;
-      list.appendChild(card);
-    });
-  } catch (e) {
-    list.innerHTML = '<p style="color:red;">Failed to load matches.</p>';
+      `,
+      )
+      .join("");
+  } catch (error) {
+    renderEmptyState(results, error.message, "⚠️");
+  } finally {
+    setButtonLoading(button, false, "Searching...", "🔍 Search");
   }
 }
 
-async function postMatch() {
-  const from = document.getElementById("matchFrom").value.trim();
-  const to = document.getElementById("matchTo").value.trim();
-  const date = document.getElementById("matchDate").value;
-  const time = document.getElementById("matchTime").value;
-  const vehicle = document.getElementById("matchVehicle").value;
-  const gender = document.getElementById("matchGender").value;
-  const notes = document.getElementById("matchNotes").value.trim();
-
-  if (!from || !to || !date || !time) {
-    toast("Fill from, to, date and time.", "error");
+async function postMyTrip() {
+  if (!currentUser) {
+    toast("Login required.", "error");
     return;
   }
 
-  const btn = document.getElementById("postMatchBtn");
-  btn.textContent = "Posting...";
-  btn.disabled = true;
+  const to = getSelectedValue("postDestSelect", "postDestOther");
+  const date = $("postDate").value;
+  const time = $("postTime").value;
+  const vehicle = $("postTransport").value;
+  const gender = $("postGender").value;
+  const notes = $("postExtraInfo").value.trim();
+
+  if (!to || !date || !time || /select/i.test(to) || /select/i.test(vehicle)) {
+    toast("Fill destination, date, time and transport.", "error");
+    return;
+  }
+
+  const button = $("postTripBtn");
+  setButtonLoading(button, true, "Posting...", "📮 Post My Trip");
 
   try {
     await API.post("/listings", {
       type: "match",
-      from,
+      from: "VIT Chennai",
       to,
       date,
       time,
       vehicle,
-      gender,
+      gender: gender === "Select Gender Preference" ? "No Preference" : gender,
       notes,
-      name: currentUserData.name,
-      uid: currentUser.uid,
     });
-    toast("Match posted! 🎉", "success");
-    closeModal("matchModal");
-    loadMatches();
-  } catch (e) {
-    toast("Failed to post.", "error");
+
+    toast("Trip posted successfully.", "success");
+    $("postExtraInfo").value = "";
+    $("postDate").value = "";
+    $("postTime").value = "";
+    $("postTransport").selectedIndex = 0;
+    $("postGender").selectedIndex = 0;
+    $("postDestSelect").selectedIndex = 0;
+    $("postDestOther").value = "";
+    $("postDestOther").classList.add("hidden");
+    showFindForm();
+    await searchMatches();
+  } catch (error) {
+    toast(error.message, "error");
   } finally {
-    btn.textContent = "Post Match";
-    btn.disabled = false;
+    setButtonLoading(button, false, "Posting...", "📮 Post My Trip");
   }
 }
 
-// ── ROUTE GROUP FINDER ────────────────────────────────────────────────────────
-function openRoutePage() {
-  switchPage("routePage");
-  loadGroups();
-}
+async function searchGroups() {
+  const destination = getSelectedValue("routeToSelect", "routeToOther");
+  const date = $("routeDate").value;
+  const mode = $("routeMode").value;
+  const gender = $("routeGender").value;
+  const resultsSection = $("routeResultsSection");
+  const results = $("routeResults");
+  const button = $("searchGroupBtn");
 
-async function loadGroups() {
-  const list = document.getElementById("groupCardList");
-  if (!list) return;
-  list.innerHTML =
-    '<p style="text-align:center; color:#aaa;">Loading groups...</p>';
+  setButtonLoading(button, true, "Searching...", "🔍 Search Groups");
+  resultsSection?.classList.remove("hidden");
+  showInlineLoading(results, "Searching groups...");
+
   try {
-    const data = await API.get("/listings?type=group");
-    const listings = data.listings || [];
-    if (listings.length === 0) {
-      list.innerHTML =
-        '<p style="text-align:center;color:#888;">No groups yet. Create one!</p>';
+    const query = new URLSearchParams({ type: "group" });
+    if (destination) query.append("destination", destination);
+    if (date) query.append("date", date);
+    if (mode) query.append("transport", mode);
+    if (gender && !/select/i.test(gender)) query.append("gender", gender);
+
+    const data = await API.get(`/listings?${query.toString()}`);
+    const listings = (data.listings || []).map(normalizeListing);
+
+    if (!listings.length) {
+      renderEmptyState(results, "No groups found yet.", "🧳");
       return;
     }
-    list.innerHTML = "";
-    listings.forEach((d) => renderGroupCard(d, list));
-  } catch (e) {
-    list.innerHTML = '<p style="color:red;">Failed to load groups.</p>';
+
+    results.innerHTML = listings
+      .map((listing) => {
+        const isOwner = currentUser && listing.uid === currentUser.uid;
+        const isMember =
+          currentUser &&
+          listing.members.some((member) => String(member) === String(currentUser.uid));
+        const isFull = listing.members.length >= listing.maxMembers;
+
+        return `
+          <div class="result-card group-card">
+            <div class="result-info">
+              <h3>${listing.name}</h3>
+              <div class="group-route">
+                <span class="route-from">${listing.from}</span>
+                <span class="route-arrow">→</span>
+                <span class="route-to">${listing.to}</span>
+              </div>
+              <p>${listing.date || "Flexible"} · ${listing.vehicle || "Flexible mode"}</p>
+              <div class="group-meta">
+                <span class="badge member-badge">${listing.members.length}/${listing.maxMembers} members</span>
+                <span class="badge">${listing.gender}</span>
+              </div>
+              ${listing.notes ? `<p class="extra-info">${listing.notes}</p>` : ""}
+            </div>
+            <div class="group-actions">
+              ${
+                isOwner
+                  ? `<button class="delete-btn" onclick="deleteListing('${listing.id}')">Delete</button>`
+                  : isMember
+                    ? `<span class="badge">Joined</span>`
+                    : isFull
+                      ? `<span class="badge">Group Full</span>`
+                      : `<button class="connect-btn" onclick="requestJoinGroup('${listing.id}')">Request to Join</button>`
+              }
+            </div>
+          </div>
+        `;
+      })
+      .join("");
+  } catch (error) {
+    renderEmptyState(results, error.message, "⚠️");
+  } finally {
+    setButtonLoading(button, false, "Searching...", "🔍 Search Groups");
   }
 }
 
-function renderGroupCard(d, container) {
-  const isCreator = d.uid === currentUser?.uid;
-  const isMember = d.members?.includes(currentUser?.uid);
-  const isFull = d.members?.length >= (d.maxMembers || 4);
-
-  const card = document.createElement("div");
-  card.className = "group-card";
-  card.innerHTML = `
-    <div class="group-card-head">
-      <div class="group-avatar" onclick="openUserProfile('${d.uid}')">${getInitials(d.name)}</div>
-      <div>
-        <div class="group-name">${d.name}</div>
-        <div class="group-route">${d.from} ➔ ${d.to}</div>
-      </div>
-    </div>
-    <div class="group-details">
-      <span>📅 ${d.date || "—"}</span>
-      <span>🚗 ${d.vehicle || "—"}</span>
-      <span>👥 ${d.members?.length || 1}/${d.maxMembers || 4}</span>
-    </div>
-    ${d.notes ? `<div class="group-notes">${d.notes}</div>` : ""}
-    <div class="group-actions">
-      ${
-        isCreator
-          ? `<button class="btn-outline" onclick="deleteListing('${d._id}')">Delete</button>`
-          : isMember
-            ? `<span class="badge">Joined ✓</span>`
-            : isFull
-              ? `<span class="badge">Full</span>`
-              : `<button onclick="requestJoinGroup('${d._id}', '${d.uid}', '${d.to}')">Request to Join</button>`
-      }
-    </div>
-  `;
-  container.appendChild(card);
-}
-
-async function requestJoinGroup(groupId, creatorId, destination) {
+async function submitCreateGroup() {
   if (!currentUser) {
-    toast("Login first.", "error");
+    toast("Login required.", "error");
     return;
   }
 
-  try {
-    // Check if already requested
-    const existing = await API.get(`/join-requests/check/${groupId}`);
-    if (existing.exists) {
-      toast("You already sent a request!", "info");
-      return;
-    }
+  const to = getSelectedValue("cgToSelect", "cgToOther");
+  const date = $("cgDate").value;
+  const mode = $("cgMode").value;
+  const gender = $("cgGender").value;
+  const maxMembers = parseInt($("cgMax").value, 10);
+  const notes = $("cgExtraInfo").value.trim();
 
-    await API.post("/join-requests", {
-      groupId,
-      creatorId,
-      destination,
-      message: `Hi! I'd like to join your trip to ${destination}.`,
-    });
-
-    toast("Join request sent! 🎉", "success");
-    loadGroups();
-  } catch (e) {
-    toast(e.message || "Failed to send request.", "error");
-  }
-}
-
-async function joinGroupDirectly(gid) {
-  try {
-    await API.post(`/listings/${gid}/join`);
-    toast("Joined group! 🎉", "success");
-    loadGroups();
-  } catch (e) {
-    toast("Failed to join.", "error");
-  }
-}
-
-async function createGroup() {
-  const from = document.getElementById("groupFrom").value.trim();
-  const to = document.getElementById("groupTo").value.trim();
-  const date = document.getElementById("groupDate").value;
-  const vehicle = document.getElementById("groupVehicle").value;
-  const maxMembers = parseInt(document.getElementById("groupMax").value) || 4;
-  const notes = document.getElementById("groupNotes").value.trim();
-
-  if (!from || !to || !date) {
-    toast("Fill from, to, and date.", "error");
+  if (!to || !date || !mode || !maxMembers) {
+    toast("Fill all required group details.", "error");
     return;
   }
 
-  const btn = document.getElementById("createGroupBtn");
-  btn.textContent = "Creating...";
-  btn.disabled = true;
+  const button = $("createGroupBtn");
+  setButtonLoading(button, true, "Creating...", "Create Group 🎒");
 
   try {
     await API.post("/listings", {
       type: "group",
-      from,
+      from: "VIT Chennai",
       to,
       date,
-      vehicle,
+      vehicle: mode,
+      gender,
       maxMembers,
       notes,
-      name: currentUserData.name,
-      uid: currentUser.uid,
-      members: [currentUser.uid],
     });
-    toast("Group created! 🎉", "success");
-    closeModal("groupModal");
-    loadGroups();
-  } catch (e) {
-    toast("Failed to create group.", "error");
+
+    toast("Group created successfully.", "success");
+    $("cgDate").value = "";
+    $("cgMode").selectedIndex = 0;
+    $("cgGender").selectedIndex = 0;
+    $("cgMax").value = "";
+    $("cgExtraInfo").value = "";
+    $("cgToSelect").selectedIndex = 0;
+    $("cgToOther").value = "";
+    $("cgToOther").classList.add("hidden");
+    switchPage("routePage");
+    await searchGroups();
+  } catch (error) {
+    toast(error.message, "error");
   } finally {
-    btn.textContent = "Create Group";
-    btn.disabled = false;
+    setButtonLoading(button, false, "Creating...", "Create Group 🎒");
   }
 }
 
-// ── CHAT / MESSAGING ──────────────────────────────────────────────────────────
-async function openChatWith(otherUid, otherName) {
-  if (!currentUser || !otherUid) return;
-  const chatId = [currentUser.uid, otherUid].sort().join("_");
-  activeChatId = chatId;
-
-  document.getElementById("chatHeaderName").textContent = otherName || "Chat";
-  document.getElementById("chatMessages").innerHTML =
-    '<p style="text-align:center;color:#888;">Loading...</p>';
-  switchPage("chatConvPage");
-
+async function requestJoinGroup(groupId) {
   try {
-    const data = await API.get(`/messages/conversation/${chatId}`);
-    renderMessages(data.messages || []);
-  } catch (e) {
-    document.getElementById("chatMessages").innerHTML =
-      '<p style="text-align:center;color:#888;">Start a conversation!</p>';
-  }
-}
-
-function renderMessages(messages) {
-  const container = document.getElementById("chatMessages");
-  if (!messages.length) {
-    container.innerHTML =
-      '<p style="text-align:center;color:#888;">No messages yet. Say hi! 👋</p>';
-    return;
-  }
-  container.innerHTML = "";
-  messages.forEach((msg) => {
-    const div = document.createElement("div");
-    div.className = `chat-msg ${msg.senderId === currentUser.uid ? "sent" : "received"}`;
-    div.innerHTML = `<p>${msg.content}</p><span class="msg-time">${new Date(msg.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>`;
-    container.appendChild(div);
-  });
-  container.scrollTop = container.scrollHeight;
-}
-
-async function sendChatMessage() {
-  const input = document.getElementById("chatInput");
-  const text = input.value.trim();
-  if (!text || !activeChatId) return;
-
-  input.value = "";
-
-  try {
-    await API.post("/messages", {
-      conversationId: activeChatId,
-      content: text,
-    });
-    // Reload messages
-    const data = await API.get(`/messages/conversation/${activeChatId}`);
-    renderMessages(data.messages || []);
-  } catch (e) {
-    toast("Failed to send.", "error");
-  }
-}
-
-async function loadChatList() {
-  const list = document.getElementById("chatListContainer");
-  if (!list) return;
-  list.innerHTML =
-    '<p style="text-align:center;color:#888;">Loading chats...</p>';
-
-  try {
-    const data = await API.get("/messages/conversations");
-    const convs = data.conversations || [];
-    if (convs.length === 0) {
-      list.innerHTML =
-        '<p style="text-align:center;color:#888;">No conversations yet.</p>';
+    const existing = await API.get(`/join-requests/check/${groupId}`);
+    if (existing.exists) {
+      toast("Request already sent.", "info");
       return;
     }
-    list.innerHTML = "";
-    convs.forEach((c) => {
-      const otherUser =
-        c.participants?.find((p) => p._id !== currentUser.uid) || {};
-      const div = document.createElement("div");
-      div.className = "chat-list-item";
-      div.onclick = () => openChatWith(otherUser._id, otherUser.name);
-      div.innerHTML = `
-        <div class="chat-avatar">${getInitials(otherUser.name)}</div>
-        <div class="chat-info">
-          <div class="chat-name">${otherUser.name || "Unknown"}</div>
-          <div class="chat-preview">${c.lastMessage || "No messages"}</div>
-        </div>
-      `;
-      list.appendChild(div);
-    });
-  } catch (e) {
-    list.innerHTML = '<p style="color:red;">Failed to load chats.</p>';
-  }
-}
 
-// ── DASHBOARD ─────────────────────────────────────────────────────────────────
-async function loadDashboard() {
-  try {
-    const [listings, requests] = await Promise.all([
-      API.get("/listings/my"),
-      API.get("/join-requests/received"),
-    ]);
-
-    const myListings = listings.listings || [];
-    const myRequests = requests.requests || [];
-    const pending = myRequests.filter((r) => r.status === "pending");
-
-    document.getElementById("statMyListings").textContent = myListings.length;
-    document.getElementById("statMyGroups").textContent = myListings.filter(
-      (l) => l.type === "group",
-    ).length;
-    document.getElementById("statPendingRequests").textContent = pending.length;
-
-    // Load first tab by default
-    showDashTab("listings");
-  } catch (e) {
-    toast("Failed to load dashboard.", "error");
-  }
-}
-
-function showDashTab(tab) {
-  document
-    .querySelectorAll(".dash-tab")
-    .forEach((t) => t.classList.remove("active"));
-  document
-    .querySelector(`.dash-tab[onclick*="${tab}"]`)
-    ?.classList.add("active");
-
-  document
-    .querySelectorAll(".dash-content")
-    .forEach((c) => c.classList.add("hidden"));
-  document.getElementById(`dash-${tab}`)?.classList.remove("hidden");
-
-  if (tab === "listings") loadMyListings();
-  else if (tab === "groups") loadMyGroups();
-  else if (tab === "received") loadReceivedRequests();
-  else if (tab === "sent") loadSentRequests();
-}
-
-async function loadMyListings() {
-  const container = document.getElementById("dash-listings");
-  if (!container) return;
-  container.innerHTML =
-    '<p style="text-align:center;color:#888;">Loading...</p>';
-
-  try {
-    const data = await API.get("/listings/my");
-    const listings = data.listings || [];
-    if (listings.length === 0) {
-      container.innerHTML =
-        '<p style="text-align:center;color:#888;">No listings yet.</p>';
-      return;
-    }
-    container.innerHTML = "";
-    listings.forEach((d) => {
-      const div = document.createElement("div");
-      div.className = "listing-card";
-      div.innerHTML = `
-        <div class="listing-type">${d.type === "match" ? "🚗 Match" : "🚌 Group"}</div>
-        <div class="listing-route">${d.from} ➔ ${d.to}</div>
-        <div class="listing-date">${d.date || "—"}</div>
-        <button class="btn-small btn-danger" onclick="deleteListing('${d._id}')">Delete</button>
-      `;
-      container.appendChild(div);
-    });
-  } catch (e) {
-    container.innerHTML = '<p style="color:red;">Failed to load.</p>';
-  }
-}
-
-async function loadMyGroups() {
-  const container = document.getElementById("dash-groups");
-  if (!container) return;
-  container.innerHTML =
-    '<p style="text-align:center;color:#888;">Loading...</p>';
-
-  try {
-    const data = await API.get("/listings/my?type=group");
-    const groups = data.listings || [];
-    if (groups.length === 0) {
-      container.innerHTML =
-        '<p style="text-align:center;color:#888;">No groups created.</p>';
-      return;
-    }
-    container.innerHTML = "";
-    groups.forEach((g) => {
-      const div = document.createElement("div");
-      div.className = "group-manage-card";
-      div.innerHTML = `
-        <div class="group-info">
-          <strong>${g.from} ➔ ${g.to}</strong>
-          <span>👥 ${g.members?.length || 1}/${g.maxMembers || 4}</span>
-        </div>
-        <div class="group-actions">
-          <button onclick="viewGroupMembers('${g._id}')">Members</button>
-          <button class="btn-danger" onclick="deleteListing('${g._id}')">Delete</button>
-        </div>
-      `;
-      container.appendChild(div);
-    });
-  } catch (e) {
-    container.innerHTML = '<p style="color:red;">Failed to load.</p>';
-  }
-}
-
-async function loadReceivedRequests() {
-  const container = document.getElementById("dash-received");
-  if (!container) return;
-  container.innerHTML =
-    '<p style="text-align:center;color:#888;">Loading...</p>';
-
-  try {
-    const data = await API.get("/join-requests/received");
-    const requests = (data.requests || []).filter(
-      (r) => r.status === "pending",
-    );
-    if (requests.length === 0) {
-      container.innerHTML =
-        '<p style="text-align:center;color:#888;">No pending requests.</p>';
-      return;
-    }
-    container.innerHTML = "";
-    requests.forEach((r) => {
-      const div = document.createElement("div");
-      div.className = "request-card";
-      div.innerHTML = `
-        <div class="request-info">
-          <strong>${r.senderName || "Someone"}</strong> wants to join your trip to <strong>${r.destination}</strong>
-          ${r.message ? `<p class="request-msg">"${r.message}"</p>` : ""}
-        </div>
-        <div class="request-actions">
-          <button class="btn-success" onclick="handleJoinRequest('${r._id}', '${r.groupId}', '${r.senderId}', 'accept')">Accept</button>
-          <button class="btn-danger" onclick="handleJoinRequest('${r._id}', '${r.groupId}', '${r.senderId}', 'reject')">Reject</button>
-        </div>
-      `;
-      container.appendChild(div);
-    });
-  } catch (e) {
-    container.innerHTML = '<p style="color:red;">Failed to load.</p>';
-  }
-}
-
-async function loadSentRequests() {
-  const container = document.getElementById("dash-sent");
-  if (!container) return;
-  container.innerHTML =
-    '<p style="text-align:center;color:#888;">Loading...</p>';
-
-  try {
-    const data = await API.get("/join-requests/sent");
-    const requests = data.requests || [];
-    if (requests.length === 0) {
-      container.innerHTML =
-        '<p style="text-align:center;color:#888;">No sent requests.</p>';
-      return;
-    }
-    container.innerHTML = "";
-    requests.forEach((r) => {
-      const statusClass =
-        r.status === "accepted"
-          ? "status-accepted"
-          : r.status === "rejected"
-            ? "status-rejected"
-            : "status-pending";
-      const div = document.createElement("div");
-      div.className = "request-card";
-      div.innerHTML = `
-        <div class="request-info">
-          <span>Request to join trip to <strong>${r.destination}</strong></span>
-          <span class="status-badge ${statusClass}">${r.status}</span>
-        </div>
-        ${r.status === "pending" ? `<button class="btn-small btn-outline" onclick="cancelJoinRequest('${r._id}')">Cancel</button>` : ""}
-      `;
-      container.appendChild(div);
-    });
-  } catch (e) {
-    container.innerHTML = '<p style="color:red;">Failed to load.</p>';
-  }
-}
-
-async function handleJoinRequest(requestId, groupId, senderId, action) {
-  try {
-    await API.put(`/join-requests/${requestId}/${action}`);
-    toast(
-      action === "accept" ? "Request accepted! 🎉" : "Request rejected.",
-      action === "accept" ? "success" : "info",
-    );
-    loadReceivedRequests();
+    await API.post("/join-requests", { groupId });
+    toast("Join request sent.", "success");
     updateNotificationBadges();
-  } catch (e) {
-    toast("Failed to process request.", "error");
-  }
-}
-
-async function cancelJoinRequest(requestId) {
-  try {
-    await API.delete(`/join-requests/${requestId}`);
-    toast("Request cancelled.", "info");
-    loadSentRequests();
-  } catch (e) {
-    toast("Failed to cancel.", "error");
-  }
-}
-
-async function viewGroupMembers(groupId) {
-  try {
-    const data = await API.get(`/listings/${groupId}/members`);
-    const members = data.members || [];
-
-    let html = '<h3>Group Members</h3><div class="members-list">';
-    members.forEach((m) => {
-      html += `
-        <div class="member-item">
-          <div class="member-avatar">${getInitials(m.name)}</div>
-          <span>${m.name}</span>
-          ${m._id !== currentUser.uid ? `<button class="btn-small btn-danger" onclick="removeMember('${groupId}', '${m._id}')">Remove</button>` : '<span class="badge">You</span>'}
-        </div>
-      `;
-    });
-    html += "</div>";
-
-    showAlert(html);
-  } catch (e) {
-    toast("Failed to load members.", "error");
-  }
-}
-
-async function removeMember(groupId, memberId) {
-  try {
-    await API.delete(`/listings/${groupId}/members/${memberId}`);
-    toast("Member removed.", "success");
-    closeAlert();
-    loadMyGroups();
-  } catch (e) {
-    toast("Failed to remove member.", "error");
+    await searchGroups();
+  } catch (error) {
+    toast(error.message, "error");
   }
 }
 
@@ -1252,159 +770,752 @@ async function deleteListing(id) {
   if (!confirm("Delete this listing?")) return;
   try {
     await API.delete(`/listings/${id}`);
-    toast("Deleted!", "success");
-    loadMatches();
-    loadGroups();
-    loadDashboard();
-  } catch (e) {
-    toast("Failed to delete.", "error");
+    toast("Listing deleted.", "success");
+    await Promise.allSettled([searchMatches(), searchGroups(), loadDashboard()]);
+  } catch (error) {
+    toast(error.message, "error");
   }
 }
 
-// ── EXPERIENCE / RATINGS ──────────────────────────────────────────────────────
-function resetExperiencePage() {
-  const sel = document.getElementById("journeySelect");
-  if (sel) sel.selectedIndex = 0;
-  document
-    .querySelectorAll("#experiencePage input, #experiencePage textarea")
-    .forEach((e) => (e.value = ""));
-}
-
-async function ratePartner() {
-  const journeyId = document.getElementById("journeySelect").value;
-  const rating = document.getElementById("journeyRating").value;
-  const comment = document.getElementById("journeyComment").value.trim();
-
-  if (!journeyId) {
-    toast("Select a journey.", "error");
-    return;
-  }
-  if (!rating || rating < 1 || rating > 5) {
-    toast("Give a rating 1-5.", "error");
-    return;
-  }
+async function loadMyProfile() {
+  const form = $("profilePage");
+  if (!form) return;
 
   try {
-    await API.post("/ratings", {
-      listingId: journeyId,
-      rating: parseInt(rating),
-      comment,
-    });
-    toast("Rating submitted! ⭐", "success");
-    resetExperiencePage();
-  } catch (e) {
-    toast("Failed to submit rating.", "error");
+    const data = await API.get("/users/me");
+    currentUserData = normalizeUser(data.user);
+    setHeader();
+
+    setAvatar($("profileAvatar"), currentUserData.name, currentUserData.photoURL);
+    $("profileName").value = currentUserData.name;
+    $("profileReg").value = currentUserData.reg;
+    $("profileDept").value = currentUserData.dept;
+    $("profilePhone").value = currentUserData.phone;
+    $("profileExtraEmail").value = currentUserData.extraEmail;
+    $("profileExtraPhone").value = currentUserData.extraPhone;
+    $("profileEmail").value = currentUserData.email || currentUser.email || "";
+    $("profileBio").value = currentUserData.bio;
+  } catch (error) {
+    toast(error.message, "error");
   }
 }
 
-async function rateByEmail() {
-  const email = document.getElementById("rateUserEmail").value.trim();
-  const rating = document.getElementById("userRating").value;
-  const comment = document.getElementById("userComment").value.trim();
+async function saveProfile() {
+  const button = $("saveProfileBtn");
+  const payload = {
+    name: $("profileName").value.trim(),
+    dept: $("profileDept").value.trim(),
+    phone: $("profilePhone").value.trim(),
+    extraEmail: $("profileExtraEmail").value.trim(),
+    extraPhone: $("profileExtraPhone").value.trim(),
+    bio: $("profileBio").value.trim(),
+  };
 
-  if (!email) {
-    toast("Enter email.", "error");
+  if (!payload.name) {
+    toast("Name is required.", "error");
     return;
   }
-  if (!rating || rating < 1 || rating > 5) {
-    toast("Give a rating 1-5.", "error");
-    return;
-  }
+
+  setButtonLoading(button, true, "Saving...", "Save Changes");
 
   try {
-    await API.post("/ratings/by-email", {
-      email,
-      rating: parseInt(rating),
-      comment,
-    });
-    toast("Rating submitted! ⭐", "success");
-    document.getElementById("rateUserEmail").value = "";
-    document.getElementById("userRating").value = "";
-    document.getElementById("userComment").value = "";
-  } catch (e) {
-    toast(e.message || "Failed to submit.", "error");
-  }
-}
-
-// ── REPORT ISSUE ──────────────────────────────────────────────────────────────
-async function submitIssue() {
-  const type = document.getElementById("issueType").value;
-  const desc = document.getElementById("issueDesc").value.trim();
-
-  if (!type || !desc) {
-    toast("Fill all fields.", "error");
-    return;
-  }
-
-  const btn = document.getElementById("submitIssueBtn");
-  btn.textContent = "Submitting...";
-  btn.disabled = true;
-
-  try {
-    await API.post("/issues", { type, description: desc });
-    toast("Issue reported! We'll look into it. 🔧", "success");
-    document.getElementById("issueType").value = "";
-    document.getElementById("issueDesc").value = "";
-  } catch (e) {
-    toast("Failed to submit.", "error");
+    const data = await API.put("/users/me", payload);
+    currentUserData = normalizeUser(data.user);
+    setHeader();
+    toast("Profile updated.", "success");
+  } catch (error) {
+    toast(error.message, "error");
   } finally {
-    btn.textContent = "Submit Issue";
-    btn.disabled = false;
+    setButtonLoading(button, false, "Saving...", "Save Changes");
   }
 }
 
-// ── SETTINGS ──────────────────────────────────────────────────────────────────
-function loadSettingsPage() {
-  const theme = localStorage.getItem("theme") || "ocean";
-  document.getElementById("themeSelect").value = theme;
+function triggerPhotoUpload() {
+  $("photoFileInput")?.click();
 }
 
-function changeTheme() {
-  const theme = document.getElementById("themeSelect").value;
-  document.body.className = theme;
+async function handlePhotoUpload(event) {
+  const file = event.target.files?.[0];
+  if (!file) return;
+
+  if (file.size > 5 * 1024 * 1024) {
+    toast("Image must be under 5MB.", "error");
+    return;
+  }
+
+  const formData = new FormData();
+  formData.append("photo", file);
+
+  try {
+    const data = await API.post(`/users/${currentUser.uid}/photo`, formData);
+    currentUserData = normalizeUser(data.user);
+    setAvatar($("profileAvatar"), currentUserData.name, currentUserData.photoURL);
+    setHeader();
+    toast("Profile photo updated.", "success");
+  } catch (error) {
+    toast(error.message, "error");
+  }
+}
+
+async function openUserProfile(userId) {
+  try {
+    const data = await API.get(`/users/${userId}`);
+    viewingUserId = userId;
+    viewingUserData = normalizeUser(data.user);
+
+    setAvatar(
+      $("otherProfileAvatar"),
+      viewingUserData.name,
+      viewingUserData.photoURL,
+    );
+    $("otherProfileName").textContent = viewingUserData.name;
+    $("otherProfileReg").textContent = viewingUserData.reg || "No registration number";
+    $("otherProfilePhone").textContent =
+      viewingUserData.phone || "Phone not shared";
+    $("otherProfileBio").textContent =
+      viewingUserData.bio || "No bio added yet.";
+
+    switchPage("otherProfilePage");
+  } catch (error) {
+    toast(error.message, "error");
+  }
+}
+
+async function messageUser() {
+  if (!viewingUserId || !viewingUserData) return;
+  await openChatWith(viewingUserId, viewingUserData.name);
+}
+
+async function messageUserFromListing(userId, name) {
+  await openChatWith(userId, name);
+}
+
+async function openChatWith(otherUserId, fallbackName = "User") {
+  try {
+    const data = await API.post(`/messages/start/${otherUserId}`, {});
+    activeConversationId = data.conversationId;
+    activeConversationUser = {
+      id: otherUserId,
+      name: data.otherUser?.name || fallbackName,
+      photoURL: data.otherUser?.photoURL || "",
+    };
+
+    $("chatPartnerName").textContent = activeConversationUser.name;
+    setAvatar(
+      $("chatPartnerAvatar"),
+      activeConversationUser.name,
+      activeConversationUser.photoURL,
+    );
+
+    switchPage("chatConvPage");
+    await loadConversation();
+  } catch (error) {
+    toast(error.message, "error");
+  }
+}
+
+async function loadChatList() {
+  const container = $("chatList");
+  showInlineLoading(container, "Loading conversations...");
+
+  try {
+    const data = await API.get("/messages/conversations");
+    const conversations = data.conversations || [];
+
+    if (!conversations.length) {
+      renderEmptyState(container, "No messages yet.", "💬");
+      return;
+    }
+
+    container.innerHTML = conversations
+      .map((conversation) => {
+        const otherUser =
+          (conversation.participants || []).find(
+            (participant) => participant._id !== currentUser.uid,
+          ) || {};
+
+        return `
+          <div class="chat-list-item" onclick="openChatWith('${otherUser._id}', '${(otherUser.name || "User").replace(/'/g, "\\'")}')">
+            <div class="result-avatar small-avatar">${getInitials(otherUser.name || "U")}</div>
+            <div class="chat-list-info">
+              <strong>${otherUser.name || "Unknown User"}</strong>
+              <p>${conversation.lastMessage || "Tap to start chatting"}</p>
+            </div>
+            ${
+              conversation.lastMessageTime
+                ? `<span class="badge">${new Date(conversation.lastMessageTime).toLocaleDateString()}</span>`
+                : ""
+            }
+          </div>
+        `;
+      })
+      .join("");
+  } catch (error) {
+    renderEmptyState(container, error.message, "⚠️");
+  }
+}
+
+async function loadConversation() {
+  const container = $("chatMessages");
+  if (!activeConversationId) {
+    renderEmptyState(container, "No conversation selected.", "💬");
+    return;
+  }
+
+  showInlineLoading(container, "Loading messages...");
+
+  try {
+    const data = await API.get(`/messages/conversation/${activeConversationId}`);
+    const messages = data.messages || [];
+
+    if (!messages.length) {
+      renderEmptyState(container, "No messages yet. Start the conversation.", "👋");
+      return;
+    }
+
+    container.innerHTML = messages
+      .map((message) => {
+        const mine = String(message.senderId) === String(currentUser.uid);
+        return `
+          <div class="msg-bubble ${mine ? "mine" : "theirs"}">
+            <span>${message.content}</span>
+            <small>${new Date(message.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</small>
+          </div>
+        `;
+      })
+      .join("");
+
+    container.scrollTop = container.scrollHeight;
+  } catch (error) {
+    renderEmptyState(container, error.message, "⚠️");
+  }
+}
+
+async function sendMessage() {
+  const input = $("msgInput");
+  const content = input.value.trim();
+
+  if (!content || !activeConversationId) return;
+
+  const sendBtn = document.querySelector(".send-btn");
+  sendBtn.disabled = true;
+
+  try {
+    await API.post("/messages", {
+      conversationId: activeConversationId,
+      content,
+    });
+
+    input.value = "";
+    await loadConversation();
+    await loadChatList();
+  } catch (error) {
+    toast(error.message, "error");
+  } finally {
+    sendBtn.disabled = false;
+  }
+}
+
+function showDashTab(tab) {
+  [
+    ["dashListingsTab", "dashListingsContent"],
+    ["dashGroupsTab", "dashGroupsContent"],
+    ["dashRequestsTab", "dashRequestsContent"],
+    ["dashSentTab", "dashSentContent"],
+  ].forEach(([tabId, contentId]) => {
+    $(tabId)?.classList.toggle(
+      "active",
+      tabId ===
+        {
+          listings: "dashListingsTab",
+          groups: "dashGroupsTab",
+          requests: "dashRequestsTab",
+          sent: "dashSentTab",
+        }[tab],
+    );
+    $(contentId)?.classList.toggle(
+      "hidden",
+      contentId !==
+        {
+          listings: "dashListingsContent",
+          groups: "dashGroupsContent",
+          requests: "dashRequestsContent",
+          sent: "dashSentContent",
+        }[tab],
+    );
+  });
+
+  if (tab === "listings") loadMyListings();
+  if (tab === "groups") loadMyGroups();
+  if (tab === "requests") loadReceivedRequests();
+  if (tab === "sent") loadSentRequests();
+}
+
+async function loadDashboard() {
+  try {
+    const [myListingsData, myRequestsData, ratingsData] = await Promise.all([
+      API.get("/listings/my"),
+      API.get("/join-requests/received"),
+      API.get("/ratings/my"),
+    ]);
+
+    const myListings = (myListingsData.listings || []).map(normalizeListing);
+    const requests = myRequestsData.requests || [];
+    const ratings = ratingsData.ratings || [];
+
+    $("statTrips").textContent = myListings.filter((item) => item.type === "match").length;
+    $("statGroups").textContent = myListings.filter((item) => item.type === "group").length;
+    $("statRatings").textContent = ratings.length;
+    $("statPendingRequests").textContent = requests.filter(
+      (request) => request.status === "pending",
+    ).length;
+
+    showDashTab("listings");
+  } catch (error) {
+    renderEmptyState(
+      $("myListingsGrid"),
+      error.message || "Failed to load dashboard.",
+      "📊",
+    );
+    toast("Failed to load dashboard.", "error");
+  }
+}
+
+async function loadMyListings() {
+  const container = $("myListingsGrid");
+  showInlineLoading(container, "Loading your listings...");
+
+  try {
+    const data = await API.get("/listings/my?type=match");
+    const listings = (data.listings || []).map(normalizeListing);
+
+    if (!listings.length) {
+      renderEmptyState(container, "No trips posted yet.", "🚕");
+      return;
+    }
+
+    container.innerHTML = listings
+      .map(
+        (listing) => `
+        <div class="result-card">
+          <div class="result-info">
+            <h3>${listing.from} → ${listing.to}</h3>
+            <p>${listing.date || "No date"} · ${listing.time || "No time"} · ${listing.vehicle}</p>
+            ${listing.notes ? `<p class="extra-info">${listing.notes}</p>` : ""}
+          </div>
+          <button class="delete-btn" onclick="deleteListing('${listing.id}')">Delete</button>
+        </div>
+      `,
+      )
+      .join("");
+  } catch (error) {
+    renderEmptyState(container, error.message, "⚠️");
+  }
+}
+
+async function loadMyGroups() {
+  const container = $("myGroupsGrid");
+  showInlineLoading(container, "Loading your groups...");
+
+  try {
+    const data = await API.get("/listings/my?type=group");
+    const groups = (data.listings || []).map(normalizeListing);
+
+    if (!groups.length) {
+      renderEmptyState(container, "No groups created yet.", "🎒");
+      return;
+    }
+
+    container.innerHTML = groups
+      .map(
+        (group) => `
+        <div class="result-card">
+          <div class="result-info">
+            <h3>${group.from} → ${group.to}</h3>
+            <p>${group.date || "No date"} · ${group.vehicle} · ${group.members.length}/${group.maxMembers} members</p>
+            ${group.notes ? `<p class="extra-info">${group.notes}</p>` : ""}
+          </div>
+          <div class="group-actions">
+            <button class="connect-btn" onclick="viewGroupMembers('${group.id}')">Members</button>
+            <button class="delete-btn" onclick="deleteListing('${group.id}')">Delete</button>
+          </div>
+        </div>
+      `,
+      )
+      .join("");
+  } catch (error) {
+    renderEmptyState(container, error.message, "⚠️");
+  }
+}
+
+async function loadReceivedRequests() {
+  const container = $("receivedRequestsGrid");
+  showInlineLoading(container, "Loading requests...");
+
+  try {
+    const data = await API.get("/join-requests/received");
+    const requests = (data.requests || []).filter(
+      (request) => request.status === "pending",
+    );
+
+    if (!requests.length) {
+      renderEmptyState(container, "No requests yet.", "📩");
+      return;
+    }
+
+    container.innerHTML = requests
+      .map(
+        (request) => `
+        <div class="request-card">
+          <div class="request-info">
+            <h4>${request.senderName || "Student"} wants to join</h4>
+            <p>Destination: ${request.destination || "Your trip"}</p>
+            ${
+              request.message
+                ? `<div class="request-message">${request.message}</div>`
+                : ""
+            }
+          </div>
+          <div class="request-actions">
+            <button class="accept-btn" onclick="handleJoinRequest('${request._id}', 'accept')">Accept</button>
+            <button class="reject-btn" onclick="handleJoinRequest('${request._id}', 'reject')">Reject</button>
+          </div>
+        </div>
+      `,
+      )
+      .join("");
+  } catch (error) {
+    renderEmptyState(container, error.message, "⚠️");
+  }
+}
+
+async function loadSentRequests() {
+  const container = $("sentRequestsGrid");
+  showInlineLoading(container, "Loading your requests...");
+
+  try {
+    const data = await API.get("/join-requests/sent");
+    const requests = data.requests || [];
+
+    if (!requests.length) {
+      renderEmptyState(container, "No requests sent yet.", "📤");
+      return;
+    }
+
+    container.innerHTML = requests
+      .map(
+        (request) => `
+        <div class="request-card">
+          <div class="request-info">
+            <h4>${request.destination || "Trip request"}</h4>
+            <p>Status: <span class="status-badge status-${request.status}">${request.status}</span></p>
+            ${
+              request.message
+                ? `<div class="request-message">${request.message}</div>`
+                : ""
+            }
+          </div>
+          <div class="request-actions">
+            ${
+              request.status === "pending"
+                ? `<button class="reject-btn" onclick="cancelJoinRequest('${request._id}')">Cancel</button>`
+                : ""
+            }
+          </div>
+        </div>
+      `,
+      )
+      .join("");
+  } catch (error) {
+    renderEmptyState(container, error.message, "⚠️");
+  }
+}
+
+async function handleJoinRequest(requestId, action) {
+  try {
+    await API.put(`/join-requests/${requestId}/${action}`, {});
+    toast(`Request ${action}ed successfully.`, "success");
+    await Promise.allSettled([loadReceivedRequests(), loadMyGroups(), updateNotificationBadges()]);
+  } catch (error) {
+    toast(error.message, "error");
+  }
+}
+
+async function cancelJoinRequest(requestId) {
+  try {
+    await API.delete(`/join-requests/${requestId}`);
+    toast("Request cancelled.", "success");
+    await loadSentRequests();
+  } catch (error) {
+    toast(error.message, "error");
+  }
+}
+
+async function viewGroupMembers(groupId) {
+  try {
+    const data = await API.get(`/listings/${groupId}/members`);
+    const members = data.members || [];
+    if (!members.length) {
+      toast("No members in this group yet.", "info");
+      return;
+    }
+
+    toast(
+      members.map((member) => member.name).join(", ").slice(0, 120),
+      "info",
+    );
+  } catch (error) {
+    toast(error.message, "error");
+  }
+}
+
+async function updateNotificationBadges() {
+  if (!currentUser) return;
+  try {
+    const requests = await API.get("/join-requests/received");
+    const pending = (requests.requests || []).filter(
+      (request) => request.status === "pending",
+    ).length;
+    $("notifBadge").textContent = pending;
+    $("notifBadge").classList.toggle("hidden", pending === 0);
+  } catch {
+    $("notifBadge")?.classList.add("hidden");
+  }
+}
+
+async function loadJourneyOptions() {
+  const select = $("journeySelect");
+  if (!select) return;
+
+  select.innerHTML = '<option value="">Loading journeys...</option>';
+
+  try {
+    const data = await API.get("/listings/my-journeys");
+    const journeys = (data.listings || []).map(normalizeListing);
+
+    if (!journeys.length) {
+      select.innerHTML = '<option value="">No journeys available yet</option>';
+      return;
+    }
+
+    select.innerHTML =
+      '<option value="">Select a journey...</option>' +
+      journeys
+        .map(
+          (journey) =>
+            `<option value="${journey.id}">${journey.date || "No date"} · ${journey.from} → ${journey.to}</option>`,
+        )
+        .join("");
+  } catch (error) {
+    select.innerHTML = `<option value="">${error.message}</option>`;
+  }
+}
+
+function showExpTab(tab) {
+  state.experienceTab = tab;
+  $("expJourneyTab")?.classList.toggle("active", tab === "journey");
+  $("expMemberTab")?.classList.toggle("active", tab === "member");
+  $("expJourneyForm")?.classList.toggle("hidden", tab !== "journey");
+  $("expMemberForm")?.classList.toggle("hidden", tab !== "member");
+}
+
+function showMemberSubTab(tab) {
+  state.memberActionTab = tab;
+  $("rateSubTab")?.classList.toggle("active", tab === "rate");
+  $("reportSubTab")?.classList.toggle("active", tab === "report");
+  $("memberRateForm")?.classList.toggle("hidden", tab !== "rate");
+  $("memberReportForm")?.classList.toggle("hidden", tab !== "report");
+}
+
+function setStars(type, count) {
+  state.ratings[type] = count;
+  const containerId = type === "journey" ? "journeyStars" : "memberStars";
+  const stars = $(`${containerId}`)?.querySelectorAll(".star") || [];
+  stars.forEach((star, index) => {
+    star.classList.toggle("active", index < count);
+  });
+}
+
+async function submitJourneyRating() {
+  const listingId = $("journeySelect").value;
+  const rating = state.ratings.journey;
+  const comment = $("journeyComment").value.trim();
+
+  if (!listingId || !rating) {
+    toast("Select a journey and give a rating.", "error");
+    return;
+  }
+
+  try {
+    await API.post("/ratings", { listingId, rating, comment });
+    $("journeySelect").value = "";
+    $("journeyComment").value = "";
+    setStars("journey", 0);
+    toast("Journey rating submitted.", "success");
+    await loadDashboard();
+  } catch (error) {
+    toast(error.message, "error");
+  }
+}
+
+async function lookupMember() {
+  const email = $("memberLookupEmail").value.trim().toLowerCase();
+  if (!email) {
+    toast("Enter a member email.", "error");
+    return;
+  }
+
+  try {
+    const data = await API.get(`/users/search/email?email=${encodeURIComponent(email)}`);
+    const user = normalizeUser(data.user);
+    viewingUserData = user;
+    viewingUserId = user.id;
+
+    $("memberLookupResult").classList.remove("hidden");
+    setAvatar($("memberFoundAvatar"), user.name, user.photoURL);
+    $("memberFoundName").textContent = user.name;
+    $("memberFoundReg").textContent = user.reg || "Registration unavailable";
+    showMemberSubTab("rate");
+  } catch (error) {
+    $("memberLookupResult").classList.add("hidden");
+    toast(error.message, "error");
+  }
+}
+
+async function submitMemberRating() {
+  const email = $("memberLookupEmail").value.trim().toLowerCase();
+  const rating = state.ratings.member;
+  const comment = $("memberRateComment").value.trim();
+
+  if (!email || !rating) {
+    toast("Find a member and choose a rating.", "error");
+    return;
+  }
+
+  try {
+    await API.post("/ratings/by-email", { email, rating, comment });
+    $("memberRateComment").value = "";
+    setStars("member", 0);
+    toast("Member rating submitted.", "success");
+    await loadDashboard();
+  } catch (error) {
+    toast(error.message, "error");
+  }
+}
+
+async function submitMemberReport() {
+  const reason = $("reportReason").value;
+  const description = $("reportDescription").value.trim();
+
+  if (!viewingUserId || !reason || !description) {
+    toast("Complete member report details.", "error");
+    return;
+  }
+
+  try {
+    await API.post("/ratings/report", {
+      toUser: viewingUserId,
+      reason,
+      description,
+    });
+
+    $("reportReason").selectedIndex = 0;
+    $("reportDescription").value = "";
+    toast("Member reported successfully.", "success");
+  } catch (error) {
+    toast(error.message, "error");
+  }
+}
+
+function applyTheme(theme) {
+  document.body.classList.remove("theme-dark", "theme-light");
+  if (theme === "dark") document.body.classList.add("theme-dark");
+  if (theme === "light") document.body.classList.add("theme-light");
+
   localStorage.setItem("theme", theme);
-  toast("Theme changed! 🎨", "success");
+
+  ["themeOptDefault", "themeOptDark", "themeOptLight"].forEach((id) =>
+    $(id)?.classList.remove("selected-theme"),
+  );
+
+  if (theme === "dark") $("themeOptDark")?.classList.add("selected-theme");
+  else if (theme === "light")
+    $("themeOptLight")?.classList.add("selected-theme");
+  else $("themeOptDefault")?.classList.add("selected-theme");
+
+  toast("Theme updated.", "success");
 }
 
-// Apply saved theme on load
-(function () {
-  const theme = localStorage.getItem("theme") || "ocean";
-  document.body.className = theme;
-})();
-
-// ── MODALS ────────────────────────────────────────────────────────────────────
-function openModal(id) {
-  document.getElementById(id).classList.remove("hidden");
-}
-function closeModal(id) {
-  document.getElementById(id).classList.add("hidden");
-}
-function showAlert(html) {
-  const modal = document.getElementById("alertModal");
-  document.getElementById("alertContent").innerHTML = html;
-  modal.classList.remove("hidden");
-}
-function closeAlert() {
-  document.getElementById("alertModal").classList.add("hidden");
+function loadSettingsPage() {
+  const theme = localStorage.getItem("theme") || "default";
+  applyTheme(theme);
 }
 
-// ── KEYBOARD SHORTCUTS ────────────────────────────────────────────────────────
-document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape") {
-    closeSidebar();
-    document
-      .querySelectorAll(".modal:not(.hidden)")
-      .forEach((m) => m.classList.add("hidden"));
+function handleScreenshotPreview(event) {
+  const file = event.target.files?.[0];
+  const preview = $("screenshotPreview");
+  const hint = $("screenshotHint");
+
+  if (!file) {
+    issueScreenshotFile = null;
+    preview.classList.add("hidden");
+    preview.removeAttribute("src");
+    hint.textContent = "📎 Click to attach screenshot";
+    return;
   }
+
+  issueScreenshotFile = file;
+  hint.textContent = `📎 ${file.name}`;
+
+  const reader = new FileReader();
+  reader.onload = () => {
+    preview.src = reader.result;
+    preview.classList.remove("hidden");
+  };
+  reader.readAsDataURL(file);
+}
+
+async function submitIssueReport() {
+  const type = $("issueCategory").value;
+  const description = $("issueDescription").value.trim();
+  const button = $("submitIssueBtn");
+
+  if (!type || !description) {
+    toast("Fill issue category and description.", "error");
+    return;
+  }
+
+  setButtonLoading(button, true, "Submitting...", "🚩 Submit Report");
+
+  try {
+    await API.post("/issues", { type, description });
+    $("issueCategory").selectedIndex = 0;
+    $("issueDescription").value = "";
+    $("issueScreenshotInput").value = "";
+    issueScreenshotFile = null;
+    $("screenshotPreview").classList.add("hidden");
+    $("screenshotHint").textContent = "📎 Click to attach screenshot";
+    toast("Issue reported successfully.", "success");
+  } catch (error) {
+    toast(error.message, "error");
+  } finally {
+    setButtonLoading(button, false, "Submitting...", "🚩 Submit Report");
+  }
+}
+
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") closeSidebar();
   if (
-    e.key === "Enter" &&
-    document.getElementById("chatConvPage").classList.contains("active")
+    event.key === "Enter" &&
+    state.currentPage === "chatConvPage" &&
+    document.activeElement?.id === "msgInput"
   ) {
-    sendChatMessage();
+    sendMessage();
   }
 });
 
-// ── CHAT INPUT ENTER KEY ──────────────────────────────────────────────────────
-document.getElementById("chatInput")?.addEventListener("keypress", (e) => {
-  if (e.key === "Enter") sendChatMessage();
+window.addEventListener("load", () => {
+  loadSettingsPage();
+  showLogin();
+  initAuth();
 });
